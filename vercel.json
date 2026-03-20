@@ -1,0 +1,12 @@
+{
+  "installCommand": "bun install --frozen-lockfile",
+  "buildCommand": "bun prisma generate && bun run db:migrate:deploy && bun run db:seed && bun run build",
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/process-sync-jobs",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}
+

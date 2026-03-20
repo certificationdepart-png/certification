@@ -1,0 +1,329 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  emailVerified Boolean @default(false)
+  image     String?
+  role      String   @default("user")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions  Session[]
+  accounts  Account[]
+}
+
+model School {
+  id                     String            @id @default(cuid())
+  name                   String
+  slug                   String            @unique
+  schoolKey              String            @unique
+  telegramChatId         String
+  telegramBotTokenEnc    String
+  novaPoshtaApiKeyEnc    String
+  googleSheetId          String
+  googleSheetUrl         String?
+  secretEncryptionKeyVer Int               @default(1)
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  courses                Course[]
+  messageTemplates       MessageTemplate[]
+  userSessions           UserSession[]
+  telegramUpdatesLog     TelegramUpdateLog[]
+  outgoingMessageLogs   OutgoingMessageLog[]
+  applications           Application[]
+  syncJobs              SyncJob[]
+  outboxEvents          OutboxEvent[]
+
+  @@index([createdAt])
+}
+
+enum SessionStep {
+  q1_start
+  q2_course
+  q3_screenshots
+  q4_certificate_type
+  q4_bpr_question
+  q4_add_more_courses
+  q5_name_ua
+  q6_name_en
+  q7_delivery
+  q8_score
+  q9_feedback
+  q10_confirmation
+  q11_finish
+}
+
+enum ApplicationStatus {
+  new
+  submitted
+  approved
+  rejected
+}
+
+enum DeliveryMode {
+  none
+  ua
+  abroad
+}
+
+enum CertificateFormat {
+  electronic
+  physical
+  both
+}
+
+model Course {
+  id               String   @id @default(cuid())
+  schoolId         String
+  school           School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  title            String
+  certificateType  String
+  daysToSend       Int
+  reviewLink       String?
+  bprEnabled       Boolean  @default(false)
+  bprSpecialtyCheckLink String?
+  bprTestLink      String?
+  requirementsText String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  applicationCourses ApplicationCourse[]
+
+  @@index([schoolId])
+  @@index([createdAt])
+}
+
+model MessageTemplate {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  code        String
+  text        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+  @@index([createdAt])
+}
+
+model UserSession {
+  id               String      @id @default(cuid())
+  schoolId         String
+  school           School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  chatId           String
+  telegramUserId   String
+  telegramUsername String?
+  currentStep      SessionStep @default(q1_start)
+  state            Json
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  applications     Application[]
+
+  @@unique([schoolId, chatId])
+  @@index([schoolId, telegramUserId])
+  @@index([createdAt])
+}
+
+model TelegramUpdateLog {
+  id             String   @id @default(cuid())
+  schoolId       String
+  school         School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  updateId       BigInt
+  chatId         String?
+  telegramUserId String?
+  updateType     String
+  payload        Json
+  createdAt      DateTime @default(now())
+
+  @@unique([schoolId, updateId])
+  @@index([schoolId, createdAt])
+}
+
+model OutgoingMessageLog {
+  id       String   @id @default(cuid())
+  schoolId String
+  school   School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  chatId   String
+  text     String
+  createdAt DateTime @default(now())
+
+  @@index([schoolId, chatId, createdAt])
+}
+
+model Application {
+  id               String            @id @default(cuid())
+  schoolId         String
+  school           School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  sessionId        String?
+  session          UserSession?      @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  telegramUserId   String
+  telegramUsername String?
+  chatId           String
+  studentNameUa    String
+  studentNameEn    String
+  deliveryMode     DeliveryMode      @default(none)
+  deliveryCity     String?
+  deliveryBranch   String?
+  deliveryAddress  String?
+  deliveryCountry  String?
+  deliveryPhone    String?
+  deliveryEmail    String?
+  score                  Int?
+  feedbackText           String?
+  status                 ApplicationStatus @default(submitted)
+  managerCheckedAt       DateTime?
+  confirmationNotifiedAt DateTime?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  courses                ApplicationCourse[]
+  screenshots            ApplicationScreenshot[]
+  statusHistory          ApplicationStatusHistory[]
+  syncJobs               SyncJob[]
+  outboxEvents           OutboxEvent[]
+  externalRowId          Int?
+
+  @@unique([schoolId, externalRowId])
+  @@index([schoolId, createdAt])
+  @@index([schoolId, telegramUserId, createdAt])
+  @@index([status])
+}
+
+model ApplicationStatusHistory {
+  id              String            @id @default(cuid())
+  applicationId   String
+  application     Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  fromStatus      ApplicationStatus
+  toStatus        ApplicationStatus
+  changedAt       DateTime         @default(now())
+  changedByUserId String?
+
+  @@index([applicationId, changedAt])
+}
+
+model ApplicationCourse {
+  id                String            @id @default(cuid())
+  applicationId     String
+  application       Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  courseId          String
+  course            Course            @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  certificateFormat CertificateFormat
+  /** Selected by user during dialog (q4_bpr_yes/q4_bpr_no). */
+  bprRequired       Boolean           @default(false)
+  createdAt         DateTime          @default(now())
+
+  @@unique([applicationId, courseId])
+  @@index([courseId])
+}
+
+model ApplicationScreenshot {
+  id            String      @id @default(cuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  fileId        String
+  sortOrder     Int         @default(0)
+  createdAt     DateTime    @default(now())
+
+  @@index([applicationId, sortOrder])
+}
+
+model SyncJob {
+  id            String    @id @default(cuid())
+  schoolId      String
+  applicationId String
+  status        String
+  attemptCount  Int       @default(0)
+  lastError     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  processingStartedAt DateTime?
+  completedAt   DateTime?
+
+  school        School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  errors        SyncError[]
+
+  @@index([schoolId, status])
+  @@index([status])
+}
+
+model OutboxEvent {
+  id            String    @id @default(cuid())
+  schoolId      String
+  applicationId String?
+  eventType     String
+  payload       Json
+  status        String    @default("pending")
+  attemptCount  Int       @default(0)
+  lastError     String?
+  nextAttemptAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  processedAt   DateTime?
+
+  school        School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([eventType, status])
+  @@index([schoolId, status])
+}
+
+model SyncError {
+  id        String   @id @default(cuid())
+  syncJobId String
+  syncJob   SyncJob  @relation(fields: [syncJobId], references: [id], onDelete: Cascade)
+  message   String
+  payload   Json?
+  createdAt DateTime @default(now())
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([identifier, value])
+}
