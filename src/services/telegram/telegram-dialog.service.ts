@@ -69,11 +69,16 @@ function isStartCommand(value: string | null): boolean {
   return v === "старт" || v === "start";
 }
 
-/** Telegram /start або /start@BotName (опційно аргументи після пробілу) — скидання діалогу. */
-function isSlashStartCommand(value: string | null): boolean {
+function isSlashCommand(value: string | null, command: string): boolean {
   if (!value) return false;
   const first = value.trim().split(/\s+/)[0] ?? "";
-  return /^\/start(?:@[A-Za-z0-9_]+)?$/i.test(first);
+  const escaped = command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^/${escaped}(?:@[A-Za-z0-9_]+)?$`, "i").test(first);
+}
+
+/** Telegram /start|/new або /command@BotName — скидання діалогу. */
+function isSessionResetSlashCommand(value: string | null): boolean {
+  return isSlashCommand(value, "start") || isSlashCommand(value, "new");
 }
 
 const Q1_START_REPLY_MARKUP: NonNullable<SendMessageInput["replyMarkup"]> = {
@@ -943,7 +948,7 @@ export async function processTelegramDialog(input: DialogProcessInput) {
   const state = asDialogState(session.state);
   const replyValue = pickTextOrCallback(incoming);
 
-  if (incoming.updateType === "message" && isSlashStartCommand(replyValue)) {
+  if (incoming.updateType === "message" && isSessionResetSlashCommand(replyValue)) {
     await prisma.userSession.update({
       where: { id: session.id },
       data: {

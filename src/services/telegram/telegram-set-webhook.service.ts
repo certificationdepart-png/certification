@@ -49,6 +49,16 @@ type TelegramSetWebhookResponse = {
   description?: string;
 };
 
+type TelegramBotCommand = {
+  command: string;
+  description: string;
+};
+
+const DEFAULT_BOT_COMMANDS: TelegramBotCommand[] = [
+  { command: "start", description: "Отримати сертифікат" },
+  { command: "new", description: "Почати нову сесію" },
+];
+
 /**
  * Calls Telegram setWebhook for this school’s bot so updates hit our shared webhook route.
  * Skipped in NODE_ENV=test to avoid external calls in tests.
@@ -125,5 +135,62 @@ export async function registerSchoolBotWebhook(input: {
       input.schoolKey.length > 12
         ? `${input.schoolKey.slice(0, 5)}…${input.schoolKey.slice(-4)}`
         : "sk_***",
+  });
+}
+
+/**
+ * Registers bot command menu entries for this school bot.
+ * Skipped in NODE_ENV=test to avoid external calls in tests.
+ */
+export async function registerSchoolBotCommands(input: { botToken: string }): Promise<void> {
+  if (process.env.NODE_ENV === "test") {
+    logger.info("telegram.set_my_commands.skipped", { reason: "NODE_ENV=test" });
+    return;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25_000);
+  let response: Response;
+  try {
+    response = await fetch(`https://api.telegram.org/bot${input.botToken}/setMyCommands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commands: DEFAULT_BOT_COMMANDS }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    logger.warn("telegram.set_my_commands.fetch_failed", {
+      message: e instanceof Error ? e.message : String(e),
+    });
+    throw new AppError(
+      "Не вдалося звернутися до Telegram API (setMyCommands). Перевірте мережу або спробуйте ще раз.",
+      502,
+      "telegram_set_my_commands_fetch_failed",
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  let data: TelegramSetWebhookResponse;
+  try {
+    data = (await response.json()) as TelegramSetWebhookResponse;
+  } catch {
+    throw new AppError("Telegram API повернув не JSON на setMyCommands", 502, "telegram_set_my_commands_bad_response");
+  }
+
+  if (!data.ok) {
+    logger.warn("telegram.set_my_commands.rejected", {
+      description: data.description,
+      status: response.status,
+    });
+    throw new AppError(
+      data.description ?? `Telegram відхилив setMyCommands (HTTP ${response.status})`,
+      502,
+      "telegram_set_my_commands_failed",
+    );
+  }
+
+  logger.info("telegram.set_my_commands.ok", {
+    commands: DEFAULT_BOT_COMMANDS.map((it) => it.command),
   });
 }

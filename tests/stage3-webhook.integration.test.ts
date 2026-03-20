@@ -250,6 +250,63 @@ describe("stage3 dialog branches", () => {
     });
   });
 
+  it("slash /new resets session and returns q1_start prompt", async () => {
+    prismaMock.userSession.upsert.mockResolvedValue({
+      id: "session-1",
+      currentStep: "q6_name_en",
+      state: {
+        started: true,
+        selectedCourses: [{ courseId: "c1", title: "Course A", certificateType: "electronic" }],
+        screenshotFileIds: ["f1"],
+      },
+    });
+
+    await processTelegramDialog({
+      school,
+      telegramClient,
+      incoming: {
+        updateId: BigInt(14),
+        chatId: "111",
+        telegramUserId: "222",
+        telegramUsername: "student",
+        text: "/new",
+        callbackData: null,
+        callbackMessageId: null,
+        screenshotFileId: null,
+        mediaGroupId: null,
+        updateType: "message",
+        raw: {
+          update_id: BigInt(14),
+          message: {
+            message_id: 14,
+            text: "/new",
+            chat: { id: 111, type: "private" },
+            from: { id: 222 },
+          },
+        },
+      },
+    });
+
+    expect(prismaMock.userSession.update).toHaveBeenCalledWith({
+      where: { id: "session-1" },
+      data: {
+        currentStep: "q1_start",
+        state: {
+          started: false,
+          selectedCourses: [],
+          screenshotFileIds: [],
+        },
+      },
+    });
+    expect(telegramClient.sendMessage).toHaveBeenCalledTimes(1);
+    expect(telegramClient.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: "111",
+        text: expect.stringContaining("Щоб ввести дані для отримання сертифікату"),
+      }),
+    );
+  });
+
   it("skipped review branch transitions q9 -> q10", async () => {
     prismaMock.userSession.upsert.mockResolvedValue({
       id: "session-1",

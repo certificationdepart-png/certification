@@ -15,7 +15,10 @@ import {
   schoolCreateSchema,
   schoolUpdateSchema,
 } from "@/services/validation";
-import { registerSchoolBotWebhook } from "@/services/telegram/telegram-set-webhook.service";
+import {
+  registerSchoolBotCommands,
+  registerSchoolBotWebhook,
+} from "@/services/telegram/telegram-set-webhook.service";
 
 function mapSchoolPublic(school: {
   id: string;
@@ -204,6 +207,9 @@ export async function createSchool(input: SchoolCreateInput) {
       botToken: parsed.telegramBotToken,
       schoolKey: school.schoolKey,
     });
+    await registerSchoolBotCommands({
+      botToken: parsed.telegramBotToken,
+    });
     logger.info("school.telegram_bot_token_saved", { schoolId: school.id, setWebhook: true });
     return mapSchoolPublic(school);
   } catch (error) {
@@ -226,6 +232,9 @@ export async function updateSchool(id: string, input: SchoolUpdateInput) {
       await registerSchoolBotWebhook({
         botToken: parsed.telegramBotToken,
         schoolKey: existing.schoolKey,
+      });
+      await registerSchoolBotCommands({
+        botToken: parsed.telegramBotToken,
       });
     }
 
