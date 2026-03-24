@@ -49,8 +49,12 @@ const TEMPLATE_FALLBACKS: Record<string, string> = {
     "Пройдіть, будь ласка, тест для нарахування балів БПР👩‍💻 👉 <a href=\"{{bpr_test_link}}\">пройти тест</a>\n\nПісля проходження тестування електронний сертифікат про нарахування балів БПР надішлемо Вам у Telegram протягом 21 дня📩",
   q5_name_ua: "Введіть Ваше ПІБ українською мовою.",
   q6_name_en: "Введіть Ваше ім'я та прізвище англійською мовою.",
+  q4_certificate_type_electronic:
+    "Дуже радіємо, що Ви пройшли цей шлях разом із нами 🥹\n\nЗ цього курсу передбачено електронний сертифікат.",
   q7_delivery:
-    "Оберіть формат доставки:",
+    "Оберіть варіант доставки:",
+  q7_abroad_info:
+    "🌍 За кордон\n👉 Для доставки за кордон пропонуємо електронний сертифікат (PDF) 💌\n\nВін має підпис і печатку та є повноцінним документом. Його можна роздрукувати за потреби. Це швидше, зручніше та без ризиків доставки.\n\n📦 Також, за вашим бажанням, можемо надіслати паперовий сертифікат Новою поштою за умови повної передоплати доставки.",
   q8_score:
     "Щиро дякуємо, що обрали нашу школу 🥹\n\nНаскільки ймовірно, що ви будете рекомендувати наше навчання?\n\nОберіть оцінку від 1 до 10 ⭐ (кнопки нижче).",
   q9_feedback:
@@ -107,12 +111,6 @@ const Q4_AFTER_FORMAT_MARKUP: NonNullable<SendMessageInput["replyMarkup"]> = {
   ],
 };
 
-const Q7_DELIVERY_FORMAT_MARKUP: NonNullable<SendMessageInput["replyMarkup"]> = {
-  inline_keyboard: [
-    [{ text: "📄 Електронний", callback_data: "q7_delivery_electronic" }],
-    [{ text: "📦 Фізичний", callback_data: "q7_delivery_physical" }],
-  ],
-};
 
 const Q7_UA_ABROAD_MARKUP: NonNullable<SendMessageInput["replyMarkup"]> = {
   inline_keyboard: [
@@ -164,14 +162,6 @@ function isQ3Done(replyValue: string | null): boolean {
   return replyValue.toLowerCase() === "далі";
 }
 
-function coursesAreElectronicOnly(courses: DialogCourseState[]): boolean {
-  return (
-    courses.length > 0 &&
-    // Respect any already chosen `selectedFormat` (e.g. user selected "physical/both"),
-    // otherwise the bot can overwrite the user's choice when adding more courses.
-    courses.every((c) => normalizeCertFormatToEn(c.selectedFormat ?? c.certificateType) === "electronic")
-  );
-}
 
 function normalizeCertFormatToEn(value: string | undefined): "electronic" | "physical" | "both" | null {
   const v = (value ?? "").trim().toLowerCase();
@@ -1089,12 +1079,16 @@ export async function processTelegramDialog(input: DialogProcessInput) {
       }
 
       const pickedCourses = state.selectedCourses;
-      if (coursesAreElectronicOnly(pickedCourses)) {
-        // If user already selected a format for any course, do not overwrite it.
-        const selectedCourses = pickedCourses.map((c) => ({
-          ...c,
-          selectedFormat: (c.selectedFormat ?? ("electronic" as const)) as DialogCourseState["selectedFormat"],
-        }));
+      const lastPickedCourse = pickedCourses[pickedCourses.length - 1];
+
+      // Check only the current (last-added) course's certificateType.
+      // If it is electronic-only, auto-select the format and skip the choice step.
+      if (lastPickedCourse && normalizeCertFormatToEn(lastPickedCourse.selectedFormat ?? lastPickedCourse.certificateType) === "electronic") {
+        const selectedCourses = pickedCourses.map((c, idx) =>
+          idx === pickedCourses.length - 1
+            ? { ...c, selectedFormat: ("electronic" as const) as DialogCourseState["selectedFormat"] }
+            : c,
+        );
         const lastCourse = selectedCourses[selectedCourses.length - 1];
         if (lastCourse?.bprEnabled) {
           await prisma.userSession.update({
@@ -1104,7 +1098,6 @@ export async function processTelegramDialog(input: DialogProcessInput) {
               state: { ...state, selectedCourses } as Prisma.InputJsonValue,
             },
           });
-
           await sendTemplateMessage(
             school,
             telegramClient,
@@ -1123,10 +1116,19 @@ export async function processTelegramDialog(input: DialogProcessInput) {
               state: { ...state, selectedCourses } as Prisma.InputJsonValue,
             },
           });
+          // First: inform about the electronic certificate (no buttons).
+          await sendTemplateMessage(
+            school,
+            telegramClient,
+            incoming.chatId,
+            "q4_certificate_type_electronic",
+            TEMPLATE_FALLBACKS.q4_certificate_type_electronic,
+          );
+          // Then immediately offer the "add more courses" action.
           await telegramClient.sendMessage({
             botToken: school.telegramBotToken,
             chatId: incoming.chatId,
-            text: "Дуже радіємо, що Ви пройшли цей шлях разом із нами 🥹\n\nЗ цього курсу передбачено електронний сертифікат.\n\nМожна отримати сертифікати з кількох курсів — оберіть дію:",
+            text: "Можна обрати сертифікати з кількох курсів. Оберіть дію:",
             replyMarkup: Q4_AFTER_FORMAT_MARKUP,
           });
         }
@@ -1149,6 +1151,32 @@ export async function processTelegramDialog(input: DialogProcessInput) {
       return;
     }
     case "q4_certificate_type": {
+      // Guard: if the current course is electronic-only, auto-advance (handles stale sessions).
+      const lastPickedForQ4 = state.selectedCourses[state.selectedCourses.length - 1];
+      if (!replyValue && lastPickedForQ4 && normalizeCertFormatToEn(lastPickedForQ4.selectedFormat ?? lastPickedForQ4.certificateType) === "electronic") {
+        const selectedCourses = state.selectedCourses.map((c, idx) =>
+          idx === state.selectedCourses.length - 1
+            ? { ...c, selectedFormat: ("electronic" as const) as DialogCourseState["selectedFormat"] }
+            : c,
+        );
+        const updatedLast = selectedCourses[selectedCourses.length - 1];
+        if (updatedLast?.bprEnabled) {
+          await prisma.userSession.update({
+            where: { id: session.id },
+            data: { currentStep: "q4_bpr_question", state: { ...state, selectedCourses } as Prisma.InputJsonValue },
+          });
+          await sendTemplateMessage(school, telegramClient, incoming.chatId, "q4_bpr_question", TEMPLATE_FALLBACKS.q4_bpr_question, { bpr_specialty_check_link: updatedLast.bprSpecialtyCheckLink ?? "" }, Q4_BPR_YESNO_MARKUP, "HTML");
+        } else {
+          await prisma.userSession.update({
+            where: { id: session.id },
+            data: { currentStep: "q4_add_more_courses", state: { ...state, selectedCourses } as Prisma.InputJsonValue },
+          });
+          await sendTemplateMessage(school, telegramClient, incoming.chatId, "q4_certificate_type_electronic", TEMPLATE_FALLBACKS.q4_certificate_type_electronic);
+          await telegramClient.sendMessage({ botToken: school.telegramBotToken, chatId: incoming.chatId, text: "Можна обрати сертифікати з кількох курсів. Оберіть дію:", replyMarkup: Q4_AFTER_FORMAT_MARKUP });
+        }
+        return;
+      }
+
       if (!replyValue) {
         await sendTemplateMessage(
           school,
@@ -1372,16 +1400,12 @@ export async function processTelegramDialog(input: DialogProcessInput) {
             ...state,
             studentNameEn: replyValue,
             deliveryMode: needsDelivery ? state.deliveryMode : "none",
+            ...(needsDelivery ? { q7SubStep: "ua_abroad_choice" } : {}),
           } as Prisma.InputJsonValue,
         },
       });
       const nextReplyMarkup: SendMessageInput["replyMarkup"] | undefined = needsDelivery
-        ? {
-            inline_keyboard: [
-              [{ text: "📄 Електронний", callback_data: "q7_delivery_electronic" }],
-              [{ text: "📦 Фізичний", callback_data: "q7_delivery_physical" }],
-            ],
-          }
+        ? Q7_UA_ABROAD_MARKUP
         : scoreReplyMarkup();
       await sendTemplateMessage(
         school,
@@ -1476,16 +1500,24 @@ export async function processTelegramDialog(input: DialogProcessInput) {
               state: {
                 ...state,
                 deliveryMode: "abroad",
-                q7SubStep: "abroad_address",
+                q7SubStep: "abroad_choice",
               } as Prisma.InputJsonValue,
             },
           });
-          await telegramClient.sendMessage({
-            botToken: school.telegramBotToken,
-            chatId: incoming.chatId,
-            text:
-              "Напишіть, будь ласка, такі дані для створення ТТН 📦 — наш менеджер зв'яжеться з вами:\n\n• ПІБ латиницею\n• Країна\n• Місто\n• Адреса / відділення\n• Телефон\n• Email\n\nМожна одним повідомленням.",
-          });
+          await sendTemplateMessage(
+            school,
+            telegramClient,
+            incoming.chatId,
+            "q7_abroad_info",
+            TEMPLATE_FALLBACKS.q7_abroad_info,
+            {},
+            {
+              inline_keyboard: [
+                [{ text: "Електронний", callback_data: "q7_abroad_electronic" }],
+                [{ text: "Фізичний", callback_data: "q7_abroad_physical" }],
+              ],
+            },
+          );
           return;
         }
         // Fallback: treat text as ua/abroad
@@ -1498,15 +1530,23 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           await prisma.userSession.update({
             where: { id: session.id },
             data: {
-              state: { ...state, deliveryMode, q7SubStep: "abroad_address" } as Prisma.InputJsonValue,
+              state: { ...state, deliveryMode, q7SubStep: "abroad_choice" } as Prisma.InputJsonValue,
             },
           });
-          await telegramClient.sendMessage({
-            botToken: school.telegramBotToken,
-            chatId: incoming.chatId,
-            text:
-              "Напишіть, будь ласка, такі дані для створення ТТН 📦 — наш менеджер зв'яжеться з вами:\n\n• ПІБ латиницею\n• Країна\n• Місто\n• Адреса / відділення\n• Телефон\n• Email\n\nМожна одним повідомленням.",
-          });
+          await sendTemplateMessage(
+            school,
+            telegramClient,
+            incoming.chatId,
+            "q7_abroad_info",
+            TEMPLATE_FALLBACKS.q7_abroad_info,
+            {},
+            {
+              inline_keyboard: [
+                [{ text: "Електронний", callback_data: "q7_abroad_electronic" }],
+                [{ text: "Фізичний", callback_data: "q7_abroad_physical" }],
+              ],
+            },
+          );
           return;
         }
         await prisma.userSession.update({
@@ -1566,7 +1606,7 @@ export async function processTelegramDialog(input: DialogProcessInput) {
             botToken: school.telegramBotToken,
             chatId: incoming.chatId,
             text:
-              "Напишіть, будь ласка, такі дані для створення ТТН 📦 — наш менеджер зв'яжеться з вами:\n\n• ПІБ латиницею\n• Країна\n• Місто\n• Адреса / відділення\n• Телефон\n• Email\n\nМожна одним повідомленням.",
+              "Напишіть, будь ласка, такі дані для створення ТТН 📦 — наш менеджер зв'яжеться з вами:\n\n• ПІБ латиницею\n• Країна\n• Місто\n• Адреса / відділення\n• Телефон\n• Email\n\nНадішліть усі дані в одному повідомленні.",
           });
           return;
         }
