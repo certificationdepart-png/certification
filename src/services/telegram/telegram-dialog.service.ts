@@ -1465,7 +1465,7 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           await telegramClient.sendMessage({
             botToken: school.telegramBotToken,
             chatId: incoming.chatId,
-            text: "Введіть тільки назву населеного пункту.",
+            text: "Введіть лише назву населеного пункту для пошуку відділення Нової пошти.",
           });
           return;
         }
@@ -1522,7 +1522,7 @@ export async function processTelegramDialog(input: DialogProcessInput) {
         await telegramClient.sendMessage({
           botToken: school.telegramBotToken,
           chatId: incoming.chatId,
-          text: "Введіть тільки назву населеного пункту.",
+          text: "Введіть лише назву населеного пункту для пошуку відділення Нової пошти.",
         });
         return;
       }
@@ -1716,7 +1716,7 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           await telegramClient.sendMessage({
             botToken: school.telegramBotToken,
             chatId: incoming.chatId,
-            text: "Не вдалося завантажити список міст. Введіть тільки назву населеного пункту.",
+            text: "Не вдалося завантажити список міст. Введіть лише назву населеного пункту для пошуку відділення Нової пошти.",
           });
           return;
         }
@@ -1973,7 +1973,7 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           await telegramClient.sendMessage({
             botToken: school.telegramBotToken,
             chatId: incoming.chatId,
-            text: "Введіть тільки назву населеного пункту.",
+            text: "Введіть лише назву населеного пункту для пошуку відділення Нової пошти.",
           });
           return;
         }
