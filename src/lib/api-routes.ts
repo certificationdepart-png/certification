@@ -5,6 +5,7 @@ export const apiRoutes = {
   telegramVerifyBot: "/api/telegram/verify-bot",
 
   courses: "/api/courses",
+  coursesReorder: "/api/courses/reorder",
   courseById: (id: string) => `/api/courses/${id}`,
 
   schools: "/api/schools",

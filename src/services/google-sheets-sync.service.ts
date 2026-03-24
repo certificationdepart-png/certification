@@ -1,9 +1,10 @@
 /**
- * Google Sheets 1:1 sync for applications.
- * Maps Application to sheet row per docs/work-scope.md "Заявки" structure.
+ * Google Sheets sync for applications.
+ * One row per ApplicationCourse — each course in an application gets its own sheet row.
+ * Column mapping from docs/work-scope.md "Заявки" structure (A–Q, 17 columns).
  */
 
-import type { ApplicationStatus, DeliveryMode, Prisma } from "@prisma/client";
+import type { ApplicationStatus, CertificateFormat, DeliveryMode } from "@prisma/client";
 
 import { env } from "@/lib/env";
 import { formatDate } from "@/lib/format-datetime";
@@ -27,15 +28,26 @@ const DELIVERY_LABELS: Record<DeliveryMode, string> = {
   abroad: "за кордон",
 };
 
+const CERTIFICATE_FORMAT_LABELS: Record<CertificateFormat, string> = {
+  electronic: "Електронний",
+  physical: "Фізичний",
+  both: "Електронний і фізичний",
+};
+
+export type ApplicationCourseForSync = {
+  id: string;
+  externalRowId: number | null;
+  certificateFormat: CertificateFormat;
+  bprRequired: boolean;
+  course: {
+    title: string;
+    bprSpecialtyCheckLink: string | null;
+    bprTestLink: string | null;
+  };
+};
+
 export type ApplicationForSync = {
-  courses: Array<{
-    course: {
-      title: string;
-      bprSpecialtyCheckLink: string | null;
-      bprTestLink: string | null;
-    };
-    bprRequired: boolean;
-  }>;
+  courses: ApplicationCourseForSync[];
   screenshots?: Array<{ id: string }>;
   _count?: { screenshots: number };
   createdAt: Date;
@@ -52,38 +64,72 @@ export type ApplicationForSync = {
 };
 
 /**
- * Map application to row values for columns A–N.
- * Column mapping from docs/work-scope.md.
+ * Map a single ApplicationCourse to row values for columns A–Q (17 columns).
+ * Each course in an application gets its own row with course-specific columns F, N, Q.
  */
+export function applicationCourseToRowValues(
+  app: ApplicationForSync,
+  ac: ApplicationCourseForSync,
+  adminApplicationUrl: string | null,
+): (string | number)[] {
+  const screenshotCount = app._count?.screenshots ?? app.screenshots?.length ?? 0;
+  const statusLabel = STATUS_LABELS[app.status] ?? app.status;
+  const deliveryLabel = DELIVERY_LABELS[app.deliveryMode] ?? "—";
+  const certFormatLabel = CERTIFICATE_FORMAT_LABELS[ac.certificateFormat] ?? ac.certificateFormat;
+
+  return [
+    statusLabel,                                                                            // A
+    app.createdAt instanceof Date ? formatDate(app.createdAt) : String(app.createdAt),     // B
+    app.telegramUserId,                                                                     // C
+    app.telegramUsername ?? "",                                                             // D
+    deliveryLabel,                                                                          // E
+    ac.course.title,                                                                        // F — single course title
+    app.studentNameUa,                                                                      // G
+    app.studentNameEn,                                                                      // H
+    app.deliveryCity ?? "",                                                                 // I
+    app.deliveryBranch ?? "",                                                               // J
+    screenshotCount,                                                                        // K
+    app.score ?? "",                                                                        // L
+    app.feedbackText ?? "",                                                                 // M
+    ac.bprRequired ? "Так" : "Ні",                                                         // N — per-course BPR flag
+    toAdminApplicationHyperlink(adminApplicationUrl),                                       // O
+    statusLabel,                                                                            // P
+    certFormatLabel,                                                                        // Q — certificate format chosen by student
+  ];
+}
+
+/** @deprecated Use applicationCourseToRowValues instead. Kept for backward compatibility. */
 export function applicationToRowValues(
   app: ApplicationForSync,
   adminApplicationUrl: string | null,
 ): (string | number)[] {
-  const courseTitles = app.courses.map((c) => c.course.title).join(", ");
-  const screenshotCount = app._count?.screenshots ?? app.screenshots?.length ?? 0;
-  const statusLabel = STATUS_LABELS[app.status] ?? app.status;
-  const deliveryLabel = DELIVERY_LABELS[app.deliveryMode] ?? "—";
-
-  const anyBprRequired = app.courses.some((c) => c.bprRequired);
-
-  return [
-    statusLabel,
-    app.createdAt instanceof Date ? formatDate(app.createdAt) : String(app.createdAt),
-    app.telegramUserId,
-    app.telegramUsername ?? "",
-    deliveryLabel,
-    courseTitles,
-    app.studentNameUa,
-    app.studentNameEn,
-    app.deliveryCity ?? "",
-    app.deliveryBranch ?? "",
-    screenshotCount,
-    app.score ?? "",
-    app.feedbackText ?? "",
-    anyBprRequired ? "Так" : "Ні",
-    toAdminApplicationHyperlink(adminApplicationUrl),
-    statusLabel,
-  ];
+  const firstCourse = app.courses[0];
+  if (!firstCourse) {
+    // Fallback: empty course data
+    const screenshotCount = app._count?.screenshots ?? app.screenshots?.length ?? 0;
+    const statusLabel = STATUS_LABELS[app.status] ?? app.status;
+    const deliveryLabel = DELIVERY_LABELS[app.deliveryMode] ?? "—";
+    return [
+      statusLabel,
+      app.createdAt instanceof Date ? formatDate(app.createdAt) : String(app.createdAt),
+      app.telegramUserId,
+      app.telegramUsername ?? "",
+      deliveryLabel,
+      "",
+      app.studentNameUa,
+      app.studentNameEn,
+      app.deliveryCity ?? "",
+      app.deliveryBranch ?? "",
+      screenshotCount,
+      app.score ?? "",
+      app.feedbackText ?? "",
+      "Ні",
+      toAdminApplicationHyperlink(adminApplicationUrl),
+      statusLabel,
+      "",
+    ];
+  }
+  return applicationCourseToRowValues(app, firstCourse, adminApplicationUrl);
 }
 
 function escapeSheetsFormulaString(value: string): string {
@@ -186,7 +232,7 @@ async function ensureHeaderRow(
   spreadsheetId: string,
   worksheetTitle: string,
 ): Promise<void> {
-  const range = buildA1Range(worksheetTitle, "A1:P1");
+  const range = buildA1Range(worksheetTitle, "A1:Q1");
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range,
@@ -210,6 +256,7 @@ async function ensureHeaderRow(
     "БПР (потрібне)",
     "Посилання на заявку (адмін)",
     "Статус",
+    "Формат сертифіката",
   ] as const;
 
   // Delete extra columns beyond what we need (if present from old runs).
@@ -251,7 +298,13 @@ async function ensureHeaderRow(
 }
 
 /**
- * Upsert application row: update if externalRowId exists, else append and store.
+ * Upsert rows for all courses in an application: one sheet row per ApplicationCourse.
+ *
+ * Migration strategy for existing applications (Application.externalRowId set):
+ *   - First course overwrites the legacy single row (replace strategy).
+ *   - Additional courses are appended as new rows.
+ *   - After all courses are processed, Application.externalRowId is nulled out
+ *     (tracking moves to ApplicationCourse.externalRowId).
  */
 export async function upsertApplicationRow(
   schoolId: string,
@@ -282,6 +335,7 @@ export async function upsertApplicationRow(
             },
           },
         },
+        orderBy: { createdAt: "asc" },
       },
       _count: { select: { screenshots: true } },
     },
@@ -304,76 +358,98 @@ export async function upsertApplicationRow(
 
   const publicBaseUrl = resolvePublicAppBaseUrl();
   const adminApplicationUrl = publicBaseUrl ? `${publicBaseUrl}${routes.admin.applicationDetail(applicationId)}` : null;
+  const dataRange = buildA1Range(worksheetTitle, "A:Q");
 
-  const rowValues = applicationToRowValues(application as unknown as ApplicationForSync, adminApplicationUrl);
-  const dataRange = buildA1Range(worksheetTitle, "A:P");
+  const appForSync = application as unknown as ApplicationForSync & { externalRowId: number | null };
+  const legacyRowId: number | null = appForSync.externalRowId;
+  let lastRowId = 0;
 
-  if (application.externalRowId != null) {
-    const rowIndex = application.externalRowId;
-    const range = buildA1Range(worksheetTitle, `A${rowIndex}:P${rowIndex}`);
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range,
-      valueInputOption: "USER_ENTERED",
-      requestBody: { values: [rowValues] },
-    });
-    return { externalRowId: rowIndex };
-  }
+  for (let i = 0; i < application.courses.length; i++) {
+    const ac = application.courses[i] as unknown as ApplicationCourseForSync;
+    const rowValues = applicationCourseToRowValues(appForSync, ac, adminApplicationUrl);
 
-  const appendRes = await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range: dataRange,
-    valueInputOption: "USER_ENTERED",
-    insertDataOption: "INSERT_ROWS",
-    requestBody: { values: [rowValues] },
-  });
-
-  const updatedRange = appendRes.data.updates?.updatedRange;
-  if (!updatedRange) {
-    throw new Error("Failed to get appended row range");
-  }
-
-  const match = updatedRange.match(/!A(\d+)/);
-  const rowNumber = match ? parseInt(match[1], 10) : 0;
-  if (rowNumber < 1) {
-    throw new Error("Could not determine row number from append response");
-  }
-
-  try {
-    await prisma.application.update({
-      where: { id: applicationId },
-      data: { externalRowId: rowNumber },
-    });
-    return { externalRowId: rowNumber };
-  } catch (err) {
-    // Under concurrent runs/retries, the Sheets "append" can still end up
-    // returning the same row index for two different requests. That causes
-    // a DB unique constraint violation on (schoolId, externalRowId).
-    if ((err as Prisma.PrismaClientKnownRequestError)?.code !== "P2002") {
-      throw err;
+    // Determine the target row for this course entry.
+    // Priority: ac.externalRowId → legacy Application.externalRowId (first course only) → append.
+    let targetRowId: number | null = ac.externalRowId ?? null;
+    if (targetRowId == null && i === 0 && legacyRowId != null) {
+      targetRowId = legacyRowId;
     }
 
-    // Try to resolve by finding the row that matches this application
-    // around the originally parsed `rowNumber`.
-    const resolvedRowNumber = await findRowNumberForApplication(
-      sheets,
-      spreadsheetId,
-      worksheetTitle,
-      application as unknown as ApplicationForSync,
-      rowNumber,
-    );
+    if (targetRowId != null) {
+      // Update the existing row.
+      const range = buildA1Range(worksheetTitle, `A${targetRowId}:Q${targetRowId}`);
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [rowValues] },
+      });
+      // Persist ac.externalRowId if it came from the legacy field.
+      if (!ac.externalRowId) {
+        await prisma.applicationCourse.update({
+          where: { id: ac.id },
+          data: { externalRowId: targetRowId },
+        });
+      }
+      lastRowId = targetRowId;
+    } else {
+      // Append a new row.
+      const appendRes = await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: dataRange,
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: [rowValues] },
+      });
 
-    if (!resolvedRowNumber) {
-      throw err;
+      const updatedRange = appendRes.data.updates?.updatedRange;
+      if (!updatedRange) {
+        throw new Error("Failed to get appended row range");
+      }
+
+      const match = updatedRange.match(/!A(\d+)/);
+      const rowNumber = match ? parseInt(match[1], 10) : 0;
+      if (rowNumber < 1) {
+        throw new Error("Could not determine row number from append response");
+      }
+
+      try {
+        await prisma.applicationCourse.update({
+          where: { id: ac.id },
+          data: { externalRowId: rowNumber },
+        });
+        lastRowId = rowNumber;
+      } catch (err) {
+        // Race condition: another concurrent sync wrote the same row index.
+        // Resolve by scanning nearby rows for a matching entry.
+        const resolvedRowNumber = await findRowNumberForApplication(
+          sheets,
+          spreadsheetId,
+          worksheetTitle,
+          appForSync,
+          rowNumber,
+        );
+        if (!resolvedRowNumber) {
+          throw err;
+        }
+        await prisma.applicationCourse.update({
+          where: { id: ac.id },
+          data: { externalRowId: resolvedRowNumber },
+        });
+        lastRowId = resolvedRowNumber;
+      }
     }
+  }
 
+  // After migrating all courses, clear the legacy Application.externalRowId.
+  if (legacyRowId != null) {
     await prisma.application.update({
       where: { id: applicationId },
-      data: { externalRowId: resolvedRowNumber },
+      data: { externalRowId: null },
     });
-
-    return { externalRowId: resolvedRowNumber };
   }
+
+  return { externalRowId: lastRowId };
 }
 
 /**

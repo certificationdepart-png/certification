@@ -11,6 +11,7 @@ export type CourseRow = {
   bprSpecialtyCheckLink: string | null;
   bprTestLink: string | null;
   requirementsText: string;
+  sortOrder: number;
 };
 
 export type TemplateRow = {

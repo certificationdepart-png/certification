@@ -485,7 +485,7 @@ async function courseSelectionReplyMarkup(
 ): Promise<{ replyMarkup: SendMessageInput["replyMarkup"] | undefined; courseCount: number }> {
   const courses = await prisma.course.findMany({
     where: { schoolId },
-    orderBy: { title: "asc" },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     select: { id: true, title: true },
     take: MAX_COURSES_INLINE,
   });

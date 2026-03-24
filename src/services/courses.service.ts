@@ -10,6 +10,11 @@ import {
   courseUpdateSchema,
 } from "@/services/validation";
 
+export type ReorderCoursesInput = {
+  schoolId: string;
+  orderedIds: string[];
+};
+
 function mapPrismaError(error: unknown): never {
   if ((error as Prisma.PrismaClientKnownRequestError)?.code === "P2003") {
     throw new AppError("Невірне посилання на школу", 400, "invalid_school_id");
@@ -23,8 +28,24 @@ function mapPrismaError(error: unknown): never {
 export async function listCoursesBySchool(schoolId: string) {
   return prisma.course.findMany({
     where: { schoolId },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
+}
+
+export async function reorderCourses({ schoolId, orderedIds }: ReorderCoursesInput): Promise<void> {
+  // Verify all IDs belong to this school before writing.
+  const existing = await prisma.course.findMany({
+    where: { id: { in: orderedIds }, schoolId },
+    select: { id: true },
+  });
+  if (existing.length !== orderedIds.length) {
+    throw new AppError("Один або кілька курсів не знайдено в цій школі", 400, "invalid_course_ids");
+  }
+  await prisma.$transaction(
+    orderedIds.map((id, index) =>
+      prisma.course.update({ where: { id }, data: { sortOrder: index } }),
+    ),
+  );
 }
 
 export async function createCourse(input: CourseCreateInput) {

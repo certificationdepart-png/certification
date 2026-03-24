@@ -67,3 +67,18 @@ export function useDeleteCourseMutation(schoolId: string) {
     onSettled: () => void invalidateCoursesScope(qc, schoolId),
   });
 }
+
+export function useReorderCoursesMutation(schoolId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (orderedIds: string[]) => {
+      const res = await fetch(apiRoutes.coursesReorder, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schoolId, orderedIds }),
+      });
+      await readApiJson<Record<string, unknown>>(res);
+    },
+    onSettled: () => void invalidateCoursesScope(qc, schoolId),
+  });
+}

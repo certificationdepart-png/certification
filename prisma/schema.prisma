@@ -92,11 +92,13 @@ model Course {
   bprSpecialtyCheckLink String?
   bprTestLink      String?
   requirementsText String
+  sortOrder        Int      @default(0)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   applicationCourses ApplicationCourse[]
 
   @@index([schoolId])
+  @@index([schoolId, sortOrder])
   @@index([createdAt])
 }
 
@@ -218,6 +220,8 @@ model ApplicationCourse {
   certificateFormat CertificateFormat
   /** Selected by user during dialog (q4_bpr_yes/q4_bpr_no). */
   bprRequired       Boolean           @default(false)
+  /** Row number in the school's Google Sheet worksheet (1-based). */
+  externalRowId     Int?
   createdAt         DateTime          @default(now())
 
   @@unique([applicationId, courseId])

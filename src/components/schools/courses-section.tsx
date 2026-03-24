@@ -2,6 +2,23 @@
 
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,7 +44,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useCoursesQuery, useDeleteCourseMutation, usePatchCourseMutation } from "@/hooks/api";
+import { useCoursesQuery, useDeleteCourseMutation, usePatchCourseMutation, useReorderCoursesMutation } from "@/hooks/api";
 import { ApiError } from "@/lib/api-http";
 import { courseUpdateSchema } from "@/services/validation";
 import { cn } from "@/lib/utils";
@@ -273,6 +290,91 @@ function CourseListSkeleton({ rows = 4 }: { rows?: number }) {
   );
 }
 
+function SortableCourseItem({
+  course,
+  onEdit,
+  onDelete,
+}: {
+  course: CourseRow;
+  onEdit: (course: CourseRow) => void;
+  onDelete: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: course.id,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "rounded-lg border border-border/80 p-4 transition-colors hover:bg-muted/30",
+        isDragging && "opacity-50 shadow-lg",
+      )}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <button
+            type="button"
+            className="mt-0.5 cursor-grab touch-none text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing"
+            aria-label="Перетягнути для зміни порядку"
+            {...attributes}
+            {...listeners}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <circle cx="5" cy="4" r="1.5" />
+              <circle cx="11" cy="4" r="1.5" />
+              <circle cx="5" cy="8" r="1.5" />
+              <circle cx="11" cy="8" r="1.5" />
+              <circle cx="5" cy="12" r="1.5" />
+              <circle cx="11" cy="12" r="1.5" />
+            </svg>
+          </button>
+          <div className="min-w-0 space-y-2">
+            <div className="font-medium">{course.title}</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">{certTypeLabel(course.certificateType)}</Badge>
+              <span className="text-muted-foreground text-xs">
+                Термін у повідомленні після схвалення:{" "}
+                <span className="font-medium text-foreground">протягом {daysWordUa(course.daysToSend)}</span>
+              </span>
+            </div>
+            {course.reviewLink ? (
+              <p className="truncate text-xs">
+                <span className="text-muted-foreground">Відгук: </span>
+                <a
+                  href={course.reviewLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  {course.reviewLink}
+                </a>
+              </p>
+            ) : null}
+            {course.requirementsText ? (
+              <p className="text-muted-foreground line-clamp-2 text-xs">{course.requirementsText}</p>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2 self-start">
+          <Button type="button" variant="outline" size="sm" onClick={() => onEdit(course)}>
+            Редагувати
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => onDelete(course.id)}>
+            Видалити
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function CoursesSection({
   schools,
   selectedSchoolId,
@@ -294,6 +396,12 @@ export function CoursesSection({
   });
   const patchCourse = usePatchCourseMutation(selectedSchoolId);
   const deleteCourse = useDeleteCourseMutation(selectedSchoolId);
+  const reorderCourses = useReorderCoursesMutation(selectedSchoolId);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -302,6 +410,20 @@ export function CoursesSection({
   const [editError, setEditError] = useState<string | null>(null);
 
   const hasSchool = useMemo(() => selectedSchoolId.length > 0, [selectedSchoolId]);
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = courses.findIndex((c) => c.id === active.id);
+    const newIndex = courses.findIndex((c) => c.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reordered = arrayMove(courses, oldIndex, newIndex);
+    void reorderCourses
+      .mutateAsync(reordered.map((c) => c.id))
+      .catch(() => toast.error("Не вдалося зберегти порядок курсів"));
+  }
 
   async function handleSaveEdit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -456,50 +578,22 @@ export function CoursesSection({
             <CourseListSkeleton />
           ) : (
             <>
-              {courses.map((course) => (
-                <div
-                  key={course.id}
-                  className="rounded-lg border border-border/80 p-4 transition-colors hover:bg-muted/30"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <div className="font-medium">{course.title}</div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="secondary">{certTypeLabel(course.certificateType)}</Badge>
-                        <span className="text-muted-foreground text-xs">
-                          Термін у повідомленні після схвалення:{" "}
-                          <span className="font-medium text-foreground">протягом {daysWordUa(course.daysToSend)}</span>
-                        </span>
-                      </div>
-                      {course.reviewLink ? (
-                        <p className="truncate text-xs">
-                          <span className="text-muted-foreground">Відгук: </span>
-                          <a
-                            href={course.reviewLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary underline-offset-4 hover:underline"
-                          >
-                            {course.reviewLink}
-                          </a>
-                        </p>
-                      ) : null}
-                      {course.requirementsText ? (
-                        <p className="text-muted-foreground line-clamp-2 text-xs">{course.requirementsText}</p>
-                      ) : null}
+              {courses.length > 0 ? (
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={courses.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+                    <div className="space-y-3">
+                      {courses.map((course) => (
+                        <SortableCourseItem
+                          key={course.id}
+                          course={course}
+                          onEdit={openEdit}
+                          onDelete={(id) => void handleDelete(id)}
+                        />
+                      ))}
                     </div>
-                    <div className="flex shrink-0 flex-wrap gap-2 self-start">
-                      <Button type="button" variant="outline" size="sm" onClick={() => openEdit(course)}>
-                        Редагувати
-                      </Button>
-                      <Button type="button" variant="outline" size="sm" onClick={() => void handleDelete(course.id)}>
-                        Видалити
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {courses.length === 0 && hasSchool ? (
+                  </SortableContext>
+                </DndContext>
+              ) : hasSchool ? (
                 <div className="rounded-lg border border-dashed p-8 text-center">
                   <p className="text-muted-foreground text-sm">Поки немає курсів.</p>
                   <p className="text-muted-foreground mt-1 text-xs">

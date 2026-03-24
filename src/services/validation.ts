@@ -84,6 +84,7 @@ export const courseCreateSchema = courseCreateSchemaBase.superRefine((data, ctx)
 
 export const courseUpdateSchema = courseCreateSchemaBase
   .omit({ schoolId: true })
+  .extend({ sortOrder: z.number().int().min(0).optional() })
   .partial()
   .superRefine((data, ctx) => {
     if (data.bprEnabled !== true) return;
