@@ -99,7 +99,6 @@ const Q4_CERT_FORMAT_MARKUP: NonNullable<SendMessageInput["replyMarkup"]> = {
   inline_keyboard: [
     [{ text: "📄 Електронний", callback_data: "cert_elec" }],
     [{ text: "📦 Фізичний", callback_data: "cert_phys" }],
-    [{ text: "📦+📄 Обидва", callback_data: "cert_both" }],
   ],
 };
 
@@ -187,9 +186,7 @@ function normalizeCertFormatToEn(value: string | undefined): "electronic" | "phy
 function parseCertFormatReply(replyValue: string): "electronic" | "physical" | "both" | null {
   if (replyValue === "cert_elec") return "electronic";
   if (replyValue === "cert_phys") return "physical";
-  if (replyValue === "cert_both") return "both";
   const value = replyValue.toLowerCase();
-  if (value.includes("обидва") || value === "both") return "both";
   if (value.includes("фіз") || value === "physical") return "physical";
   if (value.includes("елект") || value === "electronic") return "electronic";
   return null;
