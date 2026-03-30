@@ -207,9 +207,6 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
     }
   };
 
-  const pageFrom = (page - 1) * PAGE_SIZE + 1;
-  const pageTo = Math.min(page * PAGE_SIZE, total);
-
   return (
     <div className="space-y-4">
       <ApplicationsFilters
@@ -242,6 +239,10 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
       ) : view === "table" ? (
         <ApplicationsTableView
           data={data}
+          total={total}
+          page={page}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
           onOpenApplicationUrl={applicationDetailUrl}
           onOpenApplication={handleOpen}
           onConfirm={handleConfirm}
@@ -263,31 +264,6 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
         <div className="py-8 text-center text-muted-foreground">Заявок не знайдено</div>
       ) : null}
 
-      {!loading && total > 0 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            Показано {Math.max(0, pageFrom)}–{pageTo} з {total}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="inline-flex h-8 items-center justify-center rounded-md border px-3 text-sm disabled:opacity-50"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Назад
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-8 items-center justify-center rounded-md border px-3 text-sm disabled:opacity-50"
-              disabled={page * PAGE_SIZE >= total}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Далі
-            </button>
-          </div>
-        </div>
-      )}
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <AlertDialogContent>
