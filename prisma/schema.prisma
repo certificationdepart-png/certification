@@ -41,6 +41,7 @@ model School {
   applications           Application[]
   syncJobs              SyncJob[]
   outboxEvents          OutboxEvent[]
+  rejectionReasons      RejectionReason[]
 
   @@index([createdAt])
 }
@@ -91,10 +92,13 @@ model Course {
   bprEnabled       Boolean  @default(false)
   bprSpecialtyCheckLink String?
   bprTestLink      String?
-  requirementsText String
-  sortOrder        Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  requirementsText       String
+  sortOrder              Int      @default(0)
+  delayedMessageEnabled  Boolean  @default(false)
+  delayedMessageText     String?
+  delayedMessageDays     Int      @default(1)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
   applicationCourses ApplicationCourse[]
 
   @@index([schoolId])
@@ -179,6 +183,8 @@ model Application {
   deliveryCountry  String?
   deliveryPhone    String?
   deliveryEmail    String?
+  recipientName    String?
+  recipientPhone   String?
   score                  Int?
   feedbackText           String?
   status                 ApplicationStatus @default(submitted)
@@ -192,6 +198,8 @@ model Application {
   syncJobs               SyncJob[]
   outboxEvents           OutboxEvent[]
   externalRowId          Int?
+  rejectionReasonId      String?
+  rejectionReason        RejectionReason? @relation(fields: [rejectionReasonId], references: [id], onDelete: SetNull)
 
   @@unique([schoolId, externalRowId])
   @@index([schoolId, createdAt])
@@ -237,6 +245,20 @@ model ApplicationScreenshot {
   createdAt     DateTime    @default(now())
 
   @@index([applicationId, sortOrder])
+}
+
+model RejectionReason {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  label       String
+  messageText String
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  applications Application[]
+
+  @@index([schoolId, sortOrder])
 }
 
 model SyncJob {

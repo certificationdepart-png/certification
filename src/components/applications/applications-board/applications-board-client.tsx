@@ -11,9 +11,19 @@ import { routes } from "@/lib/routes";
 
 import { applicationUpdateSchema } from "@/services/validation";
 
-import { useApplicationsListQuery, usePatchApplicationMutation } from "@/hooks/api";
+import { useApplicationsListQuery, useDeleteApplicationMutation, usePatchApplicationMutation } from "@/hooks/api";
 import { ApiError } from "@/lib/api-http";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ApplicationsFilters } from "./applications-filters";
 import type { SchoolOption } from "./applications-types";
 import { STATUSES } from "./application-statuses";
@@ -30,6 +40,8 @@ const VALID_STATUS_SET = new Set(STATUSES);
 export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }) {
   const router = useRouter();
   const patchApplication = usePatchApplicationMutation();
+  const deleteApplication = useDeleteApplicationMutation();
+  const [deleteTarget, setDeleteTarget] = useState<string | string[] | null>(null);
 
   const [schoolId, setSchoolId] = useQueryState(
     "schoolId",
@@ -112,6 +124,19 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
     }
   }
 
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    const ids = Array.isArray(deleteTarget) ? deleteTarget : [deleteTarget];
+    try {
+      await Promise.all(ids.map((id) => deleteApplication.mutateAsync(id)));
+      toast.success(ids.length > 1 ? `Видалено ${ids.length} заявок` : "Заявку видалено");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Не вдалося видалити заявку");
+    } finally {
+      setDeleteTarget(null);
+    }
+  }
+
   const handleOpen = (id: string) => {
     router.push(applicationDetailUrl(id));
   };
@@ -176,6 +201,8 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
           onOpenApplicationUrl={applicationDetailUrl}
           onOpenApplication={handleOpen}
           onConfirm={handleConfirm}
+          onDelete={(id) => setDeleteTarget(id)}
+          onBulkDelete={(ids) => setDeleteTarget(ids)}
           updatingId={updatingId}
         />
       ) : (
@@ -217,6 +244,25 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
           </div>
         </div>
       )}
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {Array.isArray(deleteTarget) && deleteTarget.length > 1
+                ? `Видалити ${deleteTarget.length} заявки?`
+                : "Видалити заявку?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Заявки буде видалено з платформи. Рядки в Google Sheets залишаться.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Скасувати</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmDelete()}>Видалити</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

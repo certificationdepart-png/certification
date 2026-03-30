@@ -63,3 +63,14 @@ export function usePatchApplicationMutation() {
     onSettled: (_d, _e, vars) => void invalidateApplicationScope(qc, vars?.applicationId),
   });
 }
+
+export function useDeleteApplicationMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (applicationId: string) => {
+      const res = await fetch(apiRoutes.applicationById(applicationId), { method: "DELETE" });
+      return readApiJson<{ data: { deleted: boolean } }>(res);
+    },
+    onSettled: () => void invalidateApplicationScope(qc),
+  });
+}

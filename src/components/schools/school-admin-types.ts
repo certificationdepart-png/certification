@@ -12,6 +12,9 @@ export type CourseRow = {
   bprTestLink: string | null;
   requirementsText: string;
   sortOrder: number;
+  delayedMessageEnabled: boolean;
+  delayedMessageText: string | null;
+  delayedMessageDays: number;
 };
 
 export type TemplateRow = {

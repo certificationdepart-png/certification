@@ -58,26 +58,38 @@ export const courseCreateSchemaBase = z.object({
       z.string().trim().url("Невірний формат посилання для тесту БПР"),
     ])
     .optional(),
+
+  delayedMessageEnabled: z.boolean().default(false),
+  delayedMessageText: z.string().trim().optional().or(z.literal("")),
+  delayedMessageDays: z.number().int().min(1, "Мінімум 1 день").max(365, "Максимум 365 днів").default(1),
 });
 
 export const courseCreateSchema = courseCreateSchemaBase.superRefine((data, ctx) => {
-  if (!data.bprEnabled) return;
+  if (data.bprEnabled) {
+    const specialtyLink = data.bprSpecialtyCheckLink?.trim() ?? "";
+    if (!specialtyLink) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["bprSpecialtyCheckLink"],
+        message: "Посилання для перевірки спеціальності є обов'язковим, коли увімкнено «Бали БПР».",
+      });
+    }
 
-  const specialtyLink = data.bprSpecialtyCheckLink?.trim() ?? "";
-  if (!specialtyLink) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["bprSpecialtyCheckLink"],
-      message: "Посилання для перевірки спеціальності є обов'язковим, коли увімкнено «Бали БПР».",
-    });
+    const testLink = data.bprTestLink?.trim() ?? "";
+    if (!testLink) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["bprTestLink"],
+        message: "Посилання для тесту є обов'язковим, коли увімкнено «Бали БПР».",
+      });
+    }
   }
 
-  const testLink = data.bprTestLink?.trim() ?? "";
-  if (!testLink) {
+  if (data.delayedMessageEnabled && !data.delayedMessageText?.trim()) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ["bprTestLink"],
-      message: "Посилання для тесту є обов'язковим, коли увімкнено «Бали БПР».",
+      path: ["delayedMessageText"],
+      message: "Текст повідомлення є обов'язковим, коли увімкнено відкладене повідомлення.",
     });
   }
 });
@@ -120,7 +132,16 @@ export const templateUpdateSchema = templateCreateSchema.omit({ schoolId: true }
 export const applicationStatusEnum = z.enum(["new", "submitted", "approved", "rejected"]);
 export const applicationUpdateSchema = z.object({
   status: applicationStatusEnum.optional(),
+  rejectionReasonId: z.string().trim().min(1).optional(),
 });
+
+export const rejectionReasonCreateSchema = z.object({
+  label: z.string().trim().min(1, "Назва причини є обов'язковою"),
+  messageText: z.string().trim().min(1, "Текст повідомлення є обов'язковим"),
+  sortOrder: z.number().int().min(0).optional(),
+});
+
+export const rejectionReasonUpdateSchema = rejectionReasonCreateSchema.partial();
 
 export type SchoolCreateInput = z.infer<typeof schoolCreateSchema>;
 export type SchoolUpdateInput = z.infer<typeof schoolUpdateSchema>;
@@ -129,3 +150,5 @@ export type CourseUpdateInput = z.infer<typeof courseUpdateSchema>;
 export type TemplateCreateInput = z.infer<typeof templateCreateSchema>;
 export type TemplateUpdateInput = z.infer<typeof templateUpdateSchema>;
 export type ApplicationUpdateInput = z.infer<typeof applicationUpdateSchema>;
+export type RejectionReasonCreateInput = z.infer<typeof rejectionReasonCreateSchema>;
+export type RejectionReasonUpdateInput = z.infer<typeof rejectionReasonUpdateSchema>;

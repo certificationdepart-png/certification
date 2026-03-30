@@ -5,8 +5,8 @@ import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { upsertApplicationRow } from "@/services/google-sheets-sync.service";
 import { NotFoundError } from "@/services/errors";
-import { enqueueApplicationStatusChangedEvent } from "@/services/outbox.service";
-import { sendConfirmationNotifications } from "@/services/telegram/telegram-notification.service";
+import { enqueueApplicationStatusChangedEvent, enqueueDelayedCertFollowup } from "@/services/outbox.service";
+import { sendConfirmationNotifications, sendRejectionNotification } from "@/services/telegram/telegram-notification.service";
 
 export type ListApplicationsFilters = {
   schoolId?: string;
@@ -154,7 +154,17 @@ export async function updateApplicationStatus(
       data: updateData,
       include: {
         courses: {
-          include: { course: { select: { title: true, daysToSend: true } } },
+          include: {
+            course: {
+              select: {
+                title: true,
+                daysToSend: true,
+                delayedMessageEnabled: true,
+                delayedMessageText: true,
+                delayedMessageDays: true,
+              },
+            },
+          },
         },
         screenshots: true,
         school: true,
@@ -188,9 +198,72 @@ export async function updateApplicationStatus(
   /** Не покладатися лише на outbox/cron: work-scope — підтвердження користувачу одразу після дії менеджера. */
   if (newStatus === "approved") {
     await sendConfirmationNotifications(id);
+
+    for (const ac of application.courses) {
+      if (ac.course.delayedMessageEnabled && ac.course.delayedMessageText?.trim()) {
+        await enqueueDelayedCertFollowup(
+          {
+            applicationId: id,
+            schoolId,
+            courseId: ac.courseId,
+            messageText: ac.course.delayedMessageText,
+            chatId: application.chatId,
+          },
+          ac.course.delayedMessageDays,
+        );
+      }
+    }
   }
 
   return application;
+}
+
+export async function rejectApplication(
+  id: string,
+  schoolId: string,
+  rejectionReasonId: string,
+  userId?: string,
+) {
+  const existing = await prisma.application.findFirst({
+    where: { id, schoolId },
+    select: { id: true, status: true },
+  });
+  if (!existing) throw new NotFoundError("Заявку не знайдено");
+
+  const reason = await prisma.rejectionReason.findFirst({
+    where: { id: rejectionReasonId, schoolId },
+    select: { id: true, messageText: true },
+  });
+  if (!reason) throw new NotFoundError("Причину відхилення не знайдено");
+
+  const fromStatus = existing.status;
+  const now = new Date();
+
+  await prisma.$transaction([
+    prisma.application.update({
+      where: { id },
+      data: { status: "rejected", rejectionReasonId, updatedAt: now },
+    }),
+    prisma.applicationStatusHistory.create({
+      data: {
+        applicationId: id,
+        fromStatus,
+        toStatus: "rejected",
+        changedByUserId: userId ?? null,
+      },
+    }),
+  ]);
+
+  await enqueueApplicationStatusChangedEvent({ applicationId: id, schoolId, newStatus: "rejected" });
+
+  try {
+    await upsertApplicationRow(schoolId, id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error("Realtime Google Sheets upsert failed (best-effort)", { applicationId: id, schoolId, message });
+  }
+
+  await sendRejectionNotification(id, reason.messageText);
 }
 
 export type ChatHistoryEntry = {
@@ -314,4 +387,17 @@ export async function getApplicationChatHistory(applicationId: string): Promise<
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
   return merged;
+}
+
+export async function deleteApplication(id: string, schoolId: string): Promise<void> {
+  const existing = await prisma.application.findFirst({
+    where: { id, schoolId },
+    select: { id: true },
+  });
+  if (!existing) throw new NotFoundError("Заявку не знайдено");
+
+  // OutboxEvent has onDelete: SetNull — delete manually to avoid orphaned events
+  await prisma.outboxEvent.deleteMany({ where: { applicationId: id } });
+  await prisma.application.delete({ where: { id } });
+  // Google Sheet rows are intentionally left untouched
 }

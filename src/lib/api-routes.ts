@@ -11,6 +11,9 @@ export const apiRoutes = {
   schools: "/api/schools",
   schoolById: (id: string) => `/api/schools/${id}`,
   schoolsSyncAll: (id: string) => `/api/schools/${id}/sync-all`,
+  schoolRejectionReasons: (schoolId: string) => `/api/schools/${schoolId}/rejection-reasons`,
+  schoolRejectionReasonById: (schoolId: string, reasonId: string) =>
+    `/api/schools/${schoolId}/rejection-reasons/${reasonId}`,
 
   messageTemplates: "/api/message-templates",
   messageTemplateById: (id: string) => `/api/message-templates/${id}`,

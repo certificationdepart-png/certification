@@ -31,9 +31,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatDateTime } from "@/lib/format-datetime";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { applicationUpdateSchema } from "@/services/validation";
-import { usePatchApplicationMutation } from "@/hooks/api";
+import {
+  useDeleteApplicationMutation,
+  usePatchApplicationMutation,
+  useRejectionReasonsQuery,
+  type RejectionReasonRow,
+} from "@/hooks/api";
 import { apiRoutes } from "@/lib/api-routes";
+import { routes } from "@/lib/routes";
 import { ApiError } from "@/lib/api-http";
 
 type ApplicationDetail = {
@@ -47,6 +63,8 @@ type ApplicationDetail = {
   deliveryCountry: string | null;
   deliveryPhone: string | null;
   deliveryEmail: string | null;
+  recipientName: string | null;
+  recipientPhone: string | null;
   score: number | null;
   feedbackText: string | null;
   status: string;
@@ -108,6 +126,13 @@ export function ApplicationDetailPageClient({
 }) {
   const router = useRouter();
   const patchApplication = usePatchApplicationMutation();
+  const deleteApplicationMutation = useDeleteApplicationMutation();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [selectedReasonId, setSelectedReasonId] = useState("");
+
+  const { data: reasonsPayload } = useRejectionReasonsQuery(application.school.id);
+  const rejectionReasons: RejectionReasonRow[] = reasonsPayload?.data ?? [];
 
   const [statusDraft, setStatusDraft] = useState<string>(application.status);
   useEffect(() => {
@@ -121,6 +146,12 @@ export function ApplicationDetailPageClient({
   }, [application.screenshots]);
 
   async function handleApplyStatus() {
+    if (statusDraft === "rejected" && rejectionReasons.length > 0) {
+      setSelectedReasonId(rejectionReasons[0]?.id ?? "");
+      setShowRejectionModal(true);
+      return;
+    }
+
     const parsed = applicationUpdateSchema.safeParse({ status: statusDraft });
     if (!parsed.success) {
       toast.error(parsed.error.issues[0]?.message ?? "Невірні дані для оновлення");
@@ -132,6 +163,31 @@ export function ApplicationDetailPageClient({
       router.refresh();
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Не вдалося оновити статус");
+    }
+  }
+
+  async function handleConfirmRejection() {
+    if (!selectedReasonId) return;
+    try {
+      await patchApplication.mutateAsync({
+        applicationId: application.id,
+        body: { status: "rejected", rejectionReasonId: selectedReasonId },
+      });
+      setShowRejectionModal(false);
+      toast.success("Заявку відхилено");
+      router.refresh();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Не вдалося відхилити заявку");
+    }
+  }
+
+  async function handleDelete() {
+    try {
+      await deleteApplicationMutation.mutateAsync(application.id);
+      toast.success("Заявку видалено");
+      router.push(routes.admin.applications);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Не вдалося видалити заявку");
     }
   }
 
@@ -242,6 +298,18 @@ export function ApplicationDetailPageClient({
                     {DELIVERY_LABELS[application.deliveryMode] ?? application.deliveryMode}
                   </dd>
                 </div>
+                {application.recipientName && (
+                  <div className="space-y-1">
+                    <dt className="text-xs font-medium text-muted-foreground">Отримувач НП</dt>
+                    <dd>{application.recipientName}</dd>
+                  </div>
+                )}
+                {application.recipientPhone && (
+                  <div className="space-y-1">
+                    <dt className="text-xs font-medium text-muted-foreground">Тел. отримувача</dt>
+                    <dd>{application.recipientPhone}</dd>
+                  </div>
+                )}
                 {application.deliveryCity && (
                   <div className="space-y-1">
                     <dt className="text-xs font-medium text-muted-foreground">Місто</dt>
@@ -422,7 +490,7 @@ export function ApplicationDetailPageClient({
             )}
           </CardContent>
 
-          <CardFooter className="justify-between gap-4 text-xs text-muted-foreground">
+          <CardFooter className="flex-wrap justify-between gap-4 text-xs text-muted-foreground">
             <span>
               Створено: {formatDateTime(application.createdAt)}
             </span>
@@ -431,8 +499,69 @@ export function ApplicationDetailPageClient({
                 Підтверджено: {formatDateTime(application.managerCheckedAt)}
               </span>
             )}
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={deleteApplicationMutation.isPending}
+            >
+              Видалити заявку
+            </Button>
           </CardFooter>
         </Card>
+
+        <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Видалити заявку?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Заявку буде видалено з платформи. Рядки в Google Sheets залишаться.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Скасувати</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void handleDelete()}>Видалити</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <Dialog open={showRejectionModal} onOpenChange={setShowRejectionModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Оберіть причину відхилення</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              {rejectionReasons.map((reason) => (
+                <label key={reason.id} className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 hover:bg-muted/50">
+                  <input
+                    type="radio"
+                    name="rejection-reason-page"
+                    value={reason.id}
+                    checked={selectedReasonId === reason.id}
+                    onChange={() => setSelectedReasonId(reason.id)}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="text-sm font-medium">{reason.label}</div>
+                    <div className="text-muted-foreground mt-0.5 text-xs line-clamp-2">{reason.messageText}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setShowRejectionModal(false)}>
+                Скасувати
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={!selectedReasonId || patchApplication.isPending}
+                onClick={() => void handleConfirmRejection()}
+              >
+                {patchApplication.isPending ? "Відхилення…" : "Підтвердити"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <Card className="h-full">

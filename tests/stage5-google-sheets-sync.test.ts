@@ -25,10 +25,20 @@ function makeCourse(overrides?: Partial<ApplicationCourseForSync>): ApplicationC
   };
 }
 
+const NULL_DELIVERY_FIELDS = {
+  deliveryAddress: null,
+  deliveryCountry: null,
+  deliveryPhone: null,
+  deliveryEmail: null,
+  recipientName: null,
+  recipientPhone: null,
+} satisfies Partial<ApplicationForSync>;
+
 describe("stage5 Google Sheets sync", () => {
   describe("applicationCourseToRowValues", () => {
     it("maps a single ApplicationCourse to 17 column values in correct order A-Q", () => {
       const app: ApplicationForSync = {
+        ...NULL_DELIVERY_FIELDS,
         courses: [makeCourse()],
         _count: { screenshots: 3 },
         createdAt: new Date("2026-03-19T12:00:00Z"),
@@ -68,6 +78,7 @@ describe("stage5 Google Sheets sync", () => {
 
     it("reflects per-course BPR and certificateFormat correctly", () => {
       const app: ApplicationForSync = {
+        ...NULL_DELIVERY_FIELDS,
         courses: [],
         createdAt: new Date("2026-01-01"),
         deliveryMode: "none",
@@ -90,6 +101,7 @@ describe("stage5 Google Sheets sync", () => {
 
     it("produces separate rows for two courses in the same application", () => {
       const app: ApplicationForSync = {
+        ...NULL_DELIVERY_FIELDS,
         courses: [],
         createdAt: new Date("2026-03-01"),
         deliveryMode: "ua",
@@ -124,6 +136,7 @@ describe("stage5 Google Sheets sync", () => {
 
     it("handles null/empty optional fields", () => {
       const app: ApplicationForSync = {
+        ...NULL_DELIVERY_FIELDS,
         courses: [],
         createdAt: new Date("2026-01-01"),
         deliveryMode: "none",
@@ -151,6 +164,7 @@ describe("stage5 Google Sheets sync", () => {
 
     it("handles abroad delivery mode", () => {
       const app: ApplicationForSync = {
+        ...NULL_DELIVERY_FIELDS,
         courses: [],
         createdAt: new Date(),
         deliveryMode: "abroad",

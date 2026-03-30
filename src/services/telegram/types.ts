@@ -91,6 +91,8 @@ export type DialogCourseState = {
 export type Q7SubStep =
   | "delivery_format_choice"
   | "ua_abroad_choice"
+  | "ua_recipient_name"
+  | "ua_recipient_phone"
   | "ua_city_input"
   | "ua_city_select"
   | "ua_branch_number_input"
@@ -111,6 +113,8 @@ export type DialogState = {
   deliveryCountry?: string;
   deliveryPhone?: string;
   deliveryEmail?: string;
+  recipientName?: string;
+  recipientPhone?: string;
   score?: number;
   feedbackText?: string;
   q7SubStep?: Q7SubStep;
@@ -122,5 +126,7 @@ export type DialogState = {
   q7WarehouseQuery?: string;
   /** Нумерація з 0 для списку відділень Нової Пошти */
   q7WarehousePage?: number;
+  /** Поточна сторінка списку курсів (q2_course), з 0 */
+  q2CoursePage?: number;
 };
 
