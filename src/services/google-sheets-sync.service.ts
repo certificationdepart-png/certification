@@ -93,7 +93,11 @@ export function applicationCourseToRowValues(
     colI = combined.length > 150 ? `${combined.slice(0, 147)}…` : combined || "за кордон";
     const phone = app.deliveryPhone && app.deliveryPhone !== "—" ? app.deliveryPhone : null;
     const email = app.deliveryEmail && app.deliveryEmail !== "—" ? app.deliveryEmail : null;
-    colJ = [phone, email].filter(Boolean).join(" / ") || "—";
+    if (!phone && email) {
+      colJ = `Електронний: ${email}`;
+    } else {
+      colJ = [phone, email].filter(Boolean).join(" / ") || "—";
+    }
   } else {
     colI = app.deliveryCity ?? "";
     const branch = app.deliveryBranch ?? "";

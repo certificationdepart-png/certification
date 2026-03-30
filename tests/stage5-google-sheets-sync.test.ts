@@ -162,7 +162,7 @@ describe("stage5 Google Sheets sync", () => {
       expect(row[14]).toBe(""); // admin link null
     });
 
-    it("handles abroad delivery mode", () => {
+    it("handles abroad delivery mode with no details", () => {
       const app: ApplicationForSync = {
         ...NULL_DELIVERY_FIELDS,
         courses: [],
@@ -180,6 +180,28 @@ describe("stage5 Google Sheets sync", () => {
       };
       const row = applicationCourseToRowValues(app, makeCourse(), null);
       expect(row[4]).toBe("за кордон");
+      expect(row[9]).toBe("—"); // J: no phone, no email
+    });
+
+    it("formats col J as 'Електронний: {email}' for electronic abroad", () => {
+      const app: ApplicationForSync = {
+        ...NULL_DELIVERY_FIELDS,
+        courses: [],
+        createdAt: new Date(),
+        deliveryMode: "abroad",
+        status: "submitted",
+        telegramUserId: "1",
+        telegramUsername: null,
+        studentNameUa: "A",
+        studentNameEn: "A",
+        deliveryCity: null,
+        deliveryBranch: null,
+        score: null,
+        feedbackText: null,
+        deliveryEmail: "student@example.com",
+      };
+      const row = applicationCourseToRowValues(app, makeCourse(), null);
+      expect(row[9]).toBe("Електронний: student@example.com");
     });
   });
 });

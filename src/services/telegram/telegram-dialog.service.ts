@@ -671,19 +671,23 @@ function buildUserConfirmationSummary(state: DialogState): string {
     lines.push(`   Місто: ${state.deliveryCity?.trim() || "—"}`);
     lines.push(`   Відділення: ${state.deliveryBranch?.trim() || "—"}`);
   } else if (mode === "abroad") {
-    lines.push("📦 Доставка: за кордон");
-    const addr = state.deliveryAddress?.trim();
-    if (addr) {
-      lines.push(`   Дані для ТТН / адреса:\n${addr}`);
-    }
-    const city = state.deliveryCity?.trim();
-    const country = state.deliveryCountry?.trim();
-    const phone = state.deliveryPhone?.trim();
     const email = state.deliveryEmail?.trim();
-    if (city && city !== "—") lines.push(`   Місто: ${city}`);
-    if (country && country !== "—") lines.push(`   Країна: ${country}`);
-    if (phone && phone !== "—") lines.push(`   Телефон: ${phone}`);
-    if (email && email !== "—") lines.push(`   Email: ${email}`);
+    const addr = state.deliveryAddress?.trim();
+    if (email && !addr) {
+      // Electronic abroad: only email was collected
+      lines.push("📧 Доставка: за кордон (електронний сертифікат)");
+      lines.push(`   Email: ${email}`);
+    } else {
+      lines.push("📦 Доставка: за кордон (паперовий)");
+      if (addr) lines.push(`   Дані для ТТН / адреса:\n${addr}`);
+      const city = state.deliveryCity?.trim();
+      const country = state.deliveryCountry?.trim();
+      const phone = state.deliveryPhone?.trim();
+      if (city && city !== "—") lines.push(`   Місто: ${city}`);
+      if (country && country !== "—") lines.push(`   Країна: ${country}`);
+      if (phone && phone !== "—") lines.push(`   Телефон: ${phone}`);
+      if (email && email !== "—") lines.push(`   Email: ${email}`);
+    }
   } else {
     lines.push("📦 Доставка: не потрібна (лише електронний сертифікат або не застосовується)");
   }
@@ -1672,23 +1676,18 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           await prisma.userSession.update({
             where: { id: session.id },
             data: {
-              currentStep: "q8_score",
               state: {
                 ...state,
                 deliveryMode: "abroad",
-                q7SubStep: undefined,
+                q7SubStep: "abroad_electronic_email",
               } as Prisma.InputJsonValue,
             },
           });
-          await sendTemplateMessage(
-            school,
-            telegramClient,
-            incoming.chatId,
-            "q8_score",
-            TEMPLATE_FALLBACKS.q8_score,
-            {},
-            scoreReplyMarkup(),
-          );
+          await telegramClient.sendMessage({
+            botToken: school.telegramBotToken,
+            chatId: incoming.chatId,
+            text: "Введіть, будь ласка, email для надсилання електронного сертифіката (PDF) 📧",
+          });
           return;
         }
         if (replyValue === "q7_abroad_physical") {
@@ -1709,6 +1708,41 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           });
           return;
         }
+      }
+
+      // --- Abroad: collect email for electronic certificate ---
+      if (subStep === "abroad_electronic_email") {
+        const email = (replyValue ?? "").trim();
+        if (!email || !email.includes("@")) {
+          await telegramClient.sendMessage({
+            botToken: school.telegramBotToken,
+            chatId: incoming.chatId,
+            text: "Будь ласка, введіть коректний email-адрес (наприклад: name@example.com) 📧",
+          });
+          return;
+        }
+        await prisma.userSession.update({
+          where: { id: session.id },
+          data: {
+            currentStep: "q8_score",
+            state: {
+              ...state,
+              deliveryMode: "abroad",
+              deliveryEmail: email,
+              q7SubStep: undefined,
+            } as Prisma.InputJsonValue,
+          },
+        });
+        await sendTemplateMessage(
+          school,
+          telegramClient,
+          incoming.chatId,
+          "q8_score",
+          TEMPLATE_FALLBACKS.q8_score,
+          {},
+          scoreReplyMarkup(),
+        );
+        return;
       }
 
       // --- Abroad: collect address ---
