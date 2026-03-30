@@ -198,18 +198,29 @@ export function ApplicationDetailDrawer({
                 </select>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1.5 text-sm">
                 <div><span className="text-muted-foreground">ПІБ (UA):</span> {application.studentNameUa}</div>
                 <div><span className="text-muted-foreground">ПІБ (EN):</span> {application.studentNameEn}</div>
                 <div><span className="text-muted-foreground">Доставка:</span> {DELIVERY_LABELS[application.deliveryMode] ?? application.deliveryMode}</div>
-                {application.recipientName && <div><span className="text-muted-foreground">Отримувач НП:</span> {application.recipientName}</div>}
-                {application.recipientPhone && <div><span className="text-muted-foreground">Тел. отримувача:</span> {application.recipientPhone}</div>}
-                {application.deliveryCity && <div><span className="text-muted-foreground">Місто:</span> {application.deliveryCity}</div>}
-                {application.deliveryBranch && <div><span className="text-muted-foreground">Відділення:</span> {application.deliveryBranch}</div>}
-                {application.deliveryAddress && <div><span className="text-muted-foreground">Адреса:</span> {application.deliveryAddress}</div>}
-                {application.deliveryCountry && <div><span className="text-muted-foreground">Країна:</span> {application.deliveryCountry}</div>}
-                {application.deliveryPhone && <div><span className="text-muted-foreground">Телефон:</span> {application.deliveryPhone}</div>}
-                {application.deliveryEmail && <div><span className="text-muted-foreground">Email:</span> {application.deliveryEmail}</div>}
+
+                {application.deliveryMode === "ua" && (
+                  <>
+                    {application.recipientName && <div><span className="text-muted-foreground">Отримувач НП:</span> {application.recipientName}</div>}
+                    {application.recipientPhone && <div><span className="text-muted-foreground">Тел. отримувача:</span> {application.recipientPhone}</div>}
+                    {application.deliveryCity && <div><span className="text-muted-foreground">Місто:</span> {application.deliveryCity}</div>}
+                    {application.deliveryBranch && <div><span className="text-muted-foreground">Відділення:</span> {application.deliveryBranch}</div>}
+                  </>
+                )}
+
+                {application.deliveryMode === "abroad" && (
+                  <div className="rounded-lg border bg-muted/20 p-3 space-y-1.5 mt-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Міжнародна доставка</p>
+                    {application.deliveryCountry && <div><span className="text-muted-foreground">Країна:</span> {application.deliveryCountry}</div>}
+                    {application.deliveryAddress && <div><span className="text-muted-foreground">Адреса:</span> {application.deliveryAddress}</div>}
+                    {application.deliveryPhone && <div><span className="text-muted-foreground">Телефон:</span> {application.deliveryPhone}</div>}
+                    {application.deliveryEmail && <div className="break-words"><span className="text-muted-foreground">Email:</span> {application.deliveryEmail}</div>}
+                  </div>
+                )}
               </div>
 
               <div>

@@ -292,58 +292,69 @@ export function ApplicationDetailPageClient({
                   <dt className="text-xs font-medium text-muted-foreground">ПІБ (EN)</dt>
                   <dd className="break-words">{application.studentNameEn}</dd>
                 </div>
-                <div className="space-y-1">
-                  <dt className="text-xs font-medium text-muted-foreground">Доставка</dt>
-                  <dd>
-                    {DELIVERY_LABELS[application.deliveryMode] ?? application.deliveryMode}
-                  </dd>
+                <div className="space-y-1 sm:col-span-2">
+                  <dt className="text-xs font-medium text-muted-foreground">Спосіб доставки</dt>
+                  <dd>{DELIVERY_LABELS[application.deliveryMode] ?? application.deliveryMode}</dd>
                 </div>
-                {application.recipientName && (
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-muted-foreground">Отримувач НП</dt>
-                    <dd>{application.recipientName}</dd>
-                  </div>
+
+                {application.deliveryMode === "ua" && (
+                  <>
+                    {application.recipientName && (
+                      <div className="space-y-1">
+                        <dt className="text-xs font-medium text-muted-foreground">Отримувач НП</dt>
+                        <dd>{application.recipientName}</dd>
+                      </div>
+                    )}
+                    {application.recipientPhone && (
+                      <div className="space-y-1">
+                        <dt className="text-xs font-medium text-muted-foreground">Тел. отримувача</dt>
+                        <dd>{application.recipientPhone}</dd>
+                      </div>
+                    )}
+                    {application.deliveryCity && (
+                      <div className="space-y-1">
+                        <dt className="text-xs font-medium text-muted-foreground">Місто</dt>
+                        <dd>{application.deliveryCity}</dd>
+                      </div>
+                    )}
+                    {application.deliveryBranch && (
+                      <div className="space-y-1 sm:col-span-2">
+                        <dt className="text-xs font-medium text-muted-foreground">Відділення</dt>
+                        <dd>{application.deliveryBranch}</dd>
+                      </div>
+                    )}
+                  </>
                 )}
-                {application.recipientPhone && (
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-muted-foreground">Тел. отримувача</dt>
-                    <dd>{application.recipientPhone}</dd>
-                  </div>
-                )}
-                {application.deliveryCity && (
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-muted-foreground">Місто</dt>
-                    <dd>{application.deliveryCity}</dd>
-                  </div>
-                )}
-                {application.deliveryBranch && (
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-muted-foreground">Відділення</dt>
-                    <dd>{application.deliveryBranch}</dd>
-                  </div>
-                )}
-                {application.deliveryAddress && (
-                  <div className="space-y-1 sm:col-span-2">
-                    <dt className="text-xs font-medium text-muted-foreground">Адреса</dt>
-                    <dd>{application.deliveryAddress}</dd>
-                  </div>
-                )}
-                {application.deliveryCountry && (
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-muted-foreground">Країна</dt>
-                    <dd>{application.deliveryCountry}</dd>
-                  </div>
-                )}
-                {application.deliveryPhone && (
-                  <div className="space-y-1">
-                    <dt className="text-xs font-medium text-muted-foreground">Телефон</dt>
-                    <dd>{application.deliveryPhone}</dd>
-                  </div>
-                )}
-                {application.deliveryEmail && (
-                  <div className="space-y-1 sm:col-span-2">
-                    <dt className="text-xs font-medium text-muted-foreground">Email</dt>
-                    <dd className="break-words">{application.deliveryEmail}</dd>
+
+                {application.deliveryMode === "abroad" && (
+                  <div className="sm:col-span-2 rounded-lg border bg-muted/20 p-3 space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Міжнародна доставка</p>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {application.deliveryCountry && (
+                        <div className="space-y-0.5">
+                          <dt className="text-xs text-muted-foreground">Країна</dt>
+                          <dd className="text-sm font-medium">{application.deliveryCountry}</dd>
+                        </div>
+                      )}
+                      {application.deliveryPhone && (
+                        <div className="space-y-0.5">
+                          <dt className="text-xs text-muted-foreground">Телефон</dt>
+                          <dd className="text-sm font-medium">{application.deliveryPhone}</dd>
+                        </div>
+                      )}
+                      {application.deliveryAddress && (
+                        <div className="space-y-0.5 sm:col-span-2">
+                          <dt className="text-xs text-muted-foreground">Адреса</dt>
+                          <dd className="text-sm font-medium">{application.deliveryAddress}</dd>
+                        </div>
+                      )}
+                      {application.deliveryEmail && (
+                        <div className="space-y-0.5 sm:col-span-2">
+                          <dt className="text-xs text-muted-foreground">Email</dt>
+                          <dd className="text-sm font-medium break-words">{application.deliveryEmail}</dd>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </dl>
