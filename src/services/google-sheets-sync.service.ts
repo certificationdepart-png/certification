@@ -59,6 +59,12 @@ export type ApplicationForSync = {
   studentNameEn: string;
   deliveryCity: string | null;
   deliveryBranch: string | null;
+  deliveryAddress: string | null;
+  deliveryCountry: string | null;
+  deliveryPhone: string | null;
+  deliveryEmail: string | null;
+  recipientName: string | null;
+  recipientPhone: string | null;
   score: number | null;
   feedbackText: string | null;
 };
@@ -77,6 +83,28 @@ export function applicationCourseToRowValues(
   const deliveryLabel = DELIVERY_LABELS[app.deliveryMode] ?? "—";
   const certFormatLabel = CERTIFICATE_FORMAT_LABELS[ac.certificateFormat] ?? ac.certificateFormat;
 
+  // Columns I and J differ for abroad vs Ukraine delivery
+  let colI: string;
+  let colJ: string;
+  if (app.deliveryMode === "abroad") {
+    const country = app.deliveryCountry && app.deliveryCountry !== "—" ? app.deliveryCountry : null;
+    const address = app.deliveryAddress && app.deliveryAddress !== "—" ? app.deliveryAddress : null;
+    const combined = [country, address].filter(Boolean).join(", ");
+    colI = combined.length > 150 ? `${combined.slice(0, 147)}…` : combined || "за кордон";
+    const phone = app.deliveryPhone && app.deliveryPhone !== "—" ? app.deliveryPhone : null;
+    const email = app.deliveryEmail && app.deliveryEmail !== "—" ? app.deliveryEmail : null;
+    if (!phone && email) {
+      colJ = `Електронний: ${email}`;
+    } else {
+      colJ = [phone, email].filter(Boolean).join(" / ") || "—";
+    }
+  } else {
+    colI = app.deliveryCity ?? "";
+    const branch = app.deliveryBranch ?? "";
+    const recipient = [app.recipientName, app.recipientPhone].filter(Boolean).join(", ");
+    colJ = recipient ? `${branch}${branch ? " / " : ""}Отримувач: ${recipient}` : branch;
+  }
+
   return [
     statusLabel,                                                                            // A
     app.createdAt instanceof Date ? formatDate(app.createdAt) : String(app.createdAt),     // B
@@ -86,8 +114,8 @@ export function applicationCourseToRowValues(
     ac.course.title,                                                                        // F — single course title
     app.studentNameUa,                                                                      // G
     app.studentNameEn,                                                                      // H
-    app.deliveryCity ?? "",                                                                 // I
-    app.deliveryBranch ?? "",                                                               // J
+    colI,                                                                                   // I
+    colJ,                                                                                   // J
     screenshotCount,                                                                        // K
     app.score ?? "",                                                                        // L
     app.feedbackText ?? "",                                                                 // M

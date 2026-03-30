@@ -6,6 +6,7 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import { CoursesSection } from "@/components/schools/courses-section";
+import { RejectionReasonsSection } from "@/components/schools/rejection-reasons-section";
 import { SchoolApplicationsPanel } from "@/components/schools/school-applications-panel";
 import type { CourseRow, TemplateRow } from "@/components/schools/school-admin-types";
 import { SchoolOverviewForm } from "@/components/schools/school-overview-form";
@@ -117,6 +118,7 @@ export function SchoolSetupClient({
             <TabsTrigger value="overview">Огляд</TabsTrigger>
             <TabsTrigger value="courses">Курси</TabsTrigger>
             <TabsTrigger value="templates">Шаблони</TabsTrigger>
+            <TabsTrigger value="rejection-reasons">Причини відхилення</TabsTrigger>
             <TabsTrigger value="operations">Операції</TabsTrigger>
           </TabsList>
 
@@ -166,6 +168,10 @@ export function SchoolSetupClient({
               initialTemplatesSchoolId={school.id}
               hideSchoolSelect
             />
+          </TabsContent>
+
+          <TabsContent value="rejection-reasons">
+            <RejectionReasonsSection key={school.id} schoolId={school.id} />
           </TabsContent>
 
           <TabsContent value="operations" className="space-y-4">

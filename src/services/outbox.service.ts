@@ -13,6 +13,14 @@ type ApplicationStatusChangedPayload = {
   newStatus: string;
 };
 
+type DelayedCertFollowupPayload = {
+  applicationId: string;
+  schoolId: string;
+  courseId: string;
+  messageText: string;
+  chatId: string;
+};
+
 function isMissingOutboxTable(error: unknown) {
   if (!(error instanceof Error)) return false;
   return (
@@ -20,6 +28,19 @@ function isMissingOutboxTable(error: unknown) {
     error.message.includes('OutboxEvent') ||
     error.message.includes('outboxEvent')
   );
+}
+
+export async function enqueueDelayedCertFollowup(payload: DelayedCertFollowupPayload, delayDays: number) {
+  await outboxEvent.create({
+    data: {
+      schoolId: payload.schoolId,
+      applicationId: payload.applicationId,
+      eventType: "delayed_certificate_followup",
+      payload,
+      status: "pending",
+      nextAttemptAt: new Date(Date.now() + delayDays * 86_400_000),
+    },
+  });
 }
 
 export async function enqueueApplicationStatusChangedEvent(payload: ApplicationStatusChangedPayload) {
@@ -64,6 +85,27 @@ async function claimPendingOutboxEvent() {
   return outboxEvent.findUnique({
     where: { id: event.id },
   });
+}
+
+async function processDelayedCertFollowup(eventId: string, payload: DelayedCertFollowupPayload) {
+  const application = await prisma.application.findUnique({
+    where: { id: payload.applicationId },
+    select: { id: true, school: { select: { telegramBotTokenEnc: true } } },
+  });
+
+  if (application) {
+    const { decryptSecret } = await import("@/lib/crypto");
+    const { createTelegramClientWithLogging } = await import("@/services/telegram/telegram-client-with-logging");
+    const botToken = decryptSecret(application.school.telegramBotTokenEnc);
+    const telegramClient = createTelegramClientWithLogging(payload.schoolId);
+    await telegramClient.sendMessage({ botToken, chatId: payload.chatId, text: payload.messageText });
+  }
+
+  await outboxEvent.update({
+    where: { id: eventId },
+    data: { status: "completed", processedAt: new Date(), lastError: null },
+  });
+  observability.increment("outbox.processed.total");
 }
 
 async function processApplicationStatusChanged(eventId: string, payload: ApplicationStatusChangedPayload) {
@@ -116,6 +158,11 @@ export async function processOneOutboxEvent(): Promise<boolean> {
   try {
     if (event.eventType === "application.status_changed") {
       await processApplicationStatusChanged(event.id, event.payload as ApplicationStatusChangedPayload);
+      return true;
+    }
+
+    if (event.eventType === "delayed_certificate_followup") {
+      await processDelayedCertFollowup(event.id, event.payload as DelayedCertFollowupPayload);
       return true;
     }
 

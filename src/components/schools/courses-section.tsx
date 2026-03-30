@@ -62,6 +62,9 @@ type CourseEditFormState = {
   bprEnabled: boolean;
   bprSpecialtyCheckLink: string;
   bprTestLink: string;
+  delayedMessageEnabled: boolean;
+  delayedMessageText: string;
+  delayedMessageDays: number;
 };
 
 const initialEditForm: CourseEditFormState = {
@@ -73,6 +76,9 @@ const initialEditForm: CourseEditFormState = {
   bprEnabled: false,
   bprSpecialtyCheckLink: "",
   bprTestLink: "",
+  delayedMessageEnabled: false,
+  delayedMessageText: "",
+  delayedMessageDays: 1,
 };
 
 const certificateSelectLabels: Record<CourseEditFormState["certificateType"], string> = {
@@ -115,6 +121,9 @@ function courseRowToForm(course: CourseRow): CourseEditFormState {
     bprEnabled: course.bprEnabled,
     bprSpecialtyCheckLink: course.bprSpecialtyCheckLink ?? "",
     bprTestLink: course.bprTestLink ?? "",
+    delayedMessageEnabled: course.delayedMessageEnabled,
+    delayedMessageText: course.delayedMessageText ?? "",
+    delayedMessageDays: course.delayedMessageDays,
   };
 }
 
@@ -269,6 +278,61 @@ function CourseEditFormFields({
         <p className="text-muted-foreground text-xs">
           Обов&apos;язкове поле. Цей текст можна показувати в заявці або повідомленнях — формулюйте чітко для студента.
         </p>
+      </div>
+
+      <Separator />
+
+      <div className="space-y-4">
+        <div>
+          <h4 className="text-sm font-medium">Відкладене повідомлення</h4>
+          <p className="text-muted-foreground text-xs">
+            Надіслати повідомлення студенту через N днів після підтвердження заявки.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={pid("delayed")}
+            checked={form.delayedMessageEnabled}
+            onCheckedChange={(checked) =>
+              setForm((s) => ({ ...s, delayedMessageEnabled: Boolean(checked) }))
+            }
+          />
+          <Label htmlFor={pid("delayed")} className="cursor-pointer">
+            Увімкнути відкладене повідомлення
+          </Label>
+        </div>
+
+        {form.delayedMessageEnabled ? (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor={pid("delayed-days")}>Кількість днів</Label>
+              <Input
+                id={pid("delayed-days")}
+                type="number"
+                min={1}
+                max={365}
+                inputMode="numeric"
+                value={String(form.delayedMessageDays)}
+                onChange={(e) =>
+                  setForm((s) => ({ ...s, delayedMessageDays: Number(e.target.value) }))
+                }
+                className="max-w-[8rem]"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={pid("delayed-text")}>Текст повідомлення</Label>
+              <Textarea
+                id={pid("delayed-text")}
+                className="min-h-24"
+                value={form.delayedMessageText}
+                onChange={(e) =>
+                  setForm((s) => ({ ...s, delayedMessageText: e.target.value }))
+                }
+                placeholder="Текст, який буде надіслано студенту…"
+              />
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -438,6 +502,9 @@ export function CoursesSection({
       bprEnabled: editForm.bprEnabled,
       bprSpecialtyCheckLink: editForm.bprSpecialtyCheckLink,
       bprTestLink: editForm.bprTestLink,
+      delayedMessageEnabled: editForm.delayedMessageEnabled,
+      delayedMessageText: editForm.delayedMessageText,
+      delayedMessageDays: Number(editForm.delayedMessageDays),
     });
     if (!parsed.success) {
       const message = parsed.error.issues[0]?.message ?? "Некоректні дані";

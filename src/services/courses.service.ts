@@ -62,6 +62,9 @@ export async function createCourse(input: CourseCreateInput) {
         bprSpecialtyCheckLink: parsed.bprSpecialtyCheckLink?.trim() ? parsed.bprSpecialtyCheckLink.trim() : null,
         bprTestLink: parsed.bprTestLink?.trim() ? parsed.bprTestLink.trim() : null,
         requirementsText: parsed.requirementsText,
+        delayedMessageEnabled: parsed.delayedMessageEnabled,
+        delayedMessageText: parsed.delayedMessageText?.trim() || null,
+        delayedMessageDays: parsed.delayedMessageDays,
       },
     });
   } catch (error) {
@@ -94,6 +97,11 @@ export async function updateCourse(id: string, schoolId: string, input: CourseUp
           ? { bprTestLink: parsed.bprTestLink.trim() ? parsed.bprTestLink.trim() : null }
           : {}),
         ...(parsed.requirementsText !== undefined ? { requirementsText: parsed.requirementsText } : {}),
+        ...(parsed.delayedMessageEnabled !== undefined ? { delayedMessageEnabled: parsed.delayedMessageEnabled } : {}),
+        ...(parsed.delayedMessageText !== undefined
+          ? { delayedMessageText: parsed.delayedMessageText.trim() || null }
+          : {}),
+        ...(parsed.delayedMessageDays !== undefined ? { delayedMessageDays: parsed.delayedMessageDays } : {}),
       },
     });
   } catch (error) {

@@ -11,9 +11,32 @@ import { routes } from "@/lib/routes";
 
 import { applicationUpdateSchema } from "@/services/validation";
 
-import { useApplicationsListQuery, usePatchApplicationMutation } from "@/hooks/api";
+import {
+  useApplicationsListQuery,
+  useDeleteApplicationMutation,
+  usePatchApplicationMutation,
+  useRejectionReasonsQuery,
+  type RejectionReasonRow,
+} from "@/hooks/api";
 import { ApiError } from "@/lib/api-http";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { ApplicationsFilters } from "./applications-filters";
 import type { SchoolOption } from "./applications-types";
 import { STATUSES } from "./application-statuses";
@@ -30,6 +53,10 @@ const VALID_STATUS_SET = new Set(STATUSES);
 export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }) {
   const router = useRouter();
   const patchApplication = usePatchApplicationMutation();
+  const deleteApplication = useDeleteApplicationMutation();
+  const [deleteTarget, setDeleteTarget] = useState<string | string[] | null>(null);
+  const [pendingRejectionId, setPendingRejectionId] = useState<string | null>(null);
+  const [selectedReasonId, setSelectedReasonId] = useState("");
 
   const [schoolId, setSchoolId] = useQueryState(
     "schoolId",
@@ -49,6 +76,11 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const selectedSchoolId = schoolId;
+  const { data: reasonsPayload } = useRejectionReasonsQuery(selectedSchoolId, {
+    enabled: Boolean(selectedSchoolId),
+  });
+  const rejectionReasons: RejectionReasonRow[] = reasonsPayload?.data ?? [];
+
   const selectedStatuses = useMemo(
     () =>
       status.filter(
@@ -112,6 +144,37 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
     }
   }
 
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    const ids = Array.isArray(deleteTarget) ? deleteTarget : [deleteTarget];
+    try {
+      await Promise.all(ids.map((id) => deleteApplication.mutateAsync(id)));
+      toast.success(ids.length > 1 ? `Видалено ${ids.length} заявок` : "Заявку видалено");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Не вдалося видалити заявку");
+    } finally {
+      setDeleteTarget(null);
+    }
+  }
+
+  async function handleConfirmKanbanRejection() {
+    if (!pendingRejectionId || !selectedReasonId) return;
+    const applicationId = pendingRejectionId;
+    setUpdatingId(applicationId);
+    setPendingRejectionId(null);
+    try {
+      await patchApplication.mutateAsync({
+        applicationId,
+        body: { status: "rejected", rejectionReasonId: selectedReasonId },
+      });
+      toast.success("Заявку відхилено");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Не вдалося відхилити заявку");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   const handleOpen = (id: string) => {
     router.push(applicationDetailUrl(id));
   };
@@ -120,6 +183,12 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
 
   const handleDragStatusChange = async (applicationId: string, newStatus: ApplicationStatus) => {
     if (updatingId) return;
+
+    if (newStatus === "rejected" && rejectionReasons.length > 0) {
+      setSelectedReasonId(rejectionReasons[0]?.id ?? "");
+      setPendingRejectionId(applicationId);
+      return;
+    }
 
     setUpdatingId(applicationId);
     try {
@@ -137,9 +206,6 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
       setUpdatingId(null);
     }
   };
-
-  const pageFrom = (page - 1) * PAGE_SIZE + 1;
-  const pageTo = Math.min(page * PAGE_SIZE, total);
 
   return (
     <div className="space-y-4">
@@ -173,9 +239,15 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
       ) : view === "table" ? (
         <ApplicationsTableView
           data={data}
+          total={total}
+          page={page}
+          pageSize={PAGE_SIZE}
+          onPageChange={setPage}
           onOpenApplicationUrl={applicationDetailUrl}
           onOpenApplication={handleOpen}
           onConfirm={handleConfirm}
+          onDelete={(id) => setDeleteTarget(id)}
+          onBulkDelete={(ids) => setDeleteTarget(ids)}
           updatingId={updatingId}
         />
       ) : (
@@ -192,31 +264,63 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
         <div className="py-8 text-center text-muted-foreground">Заявок не знайдено</div>
       ) : null}
 
-      {!loading && total > 0 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            Показано {Math.max(0, pageFrom)}–{pageTo} з {total}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="inline-flex h-8 items-center justify-center rounded-md border px-3 text-sm disabled:opacity-50"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Назад
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-8 items-center justify-center rounded-md border px-3 text-sm disabled:opacity-50"
-              disabled={page * PAGE_SIZE >= total}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Далі
-            </button>
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {Array.isArray(deleteTarget) && deleteTarget.length > 1
+                ? `Видалити ${deleteTarget.length} заявки?`
+                : "Видалити заявку?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Заявки буде видалено з платформи. Рядки в Google Sheets залишаться.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Скасувати</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmDelete()}>Видалити</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={Boolean(pendingRejectionId)} onOpenChange={(open) => { if (!open) setPendingRejectionId(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Оберіть причину відхилення</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {rejectionReasons.map((reason) => (
+              <label key={reason.id} className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 hover:bg-muted/50">
+                <input
+                  type="radio"
+                  name="kanban-rejection-reason"
+                  value={reason.id}
+                  checked={selectedReasonId === reason.id}
+                  onChange={() => setSelectedReasonId(reason.id)}
+                  className="mt-0.5"
+                />
+                <div>
+                  <div className="text-sm font-medium">{reason.label}</div>
+                  <div className="text-muted-foreground mt-0.5 text-xs line-clamp-2">{reason.messageText}</div>
+                </div>
+              </label>
+            ))}
           </div>
-        </div>
-      )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setPendingRejectionId(null)}>
+              Скасувати
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!selectedReasonId || patchApplication.isPending}
+              onClick={() => void handleConfirmKanbanRejection()}
+            >
+              {patchApplication.isPending ? "Відхилення…" : "Підтвердити"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

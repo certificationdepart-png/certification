@@ -252,6 +252,8 @@ function asDialogState(state: Prisma.JsonValue): DialogState {
     deliveryCountry: typed.deliveryCountry,
     deliveryPhone: typed.deliveryPhone,
     deliveryEmail: typed.deliveryEmail,
+    recipientName: typed.recipientName,
+    recipientPhone: typed.recipientPhone,
     score: typed.score,
     feedbackText: typed.feedbackText,
     q7SubStep: typed.q7SubStep as Q7SubStep | undefined,
@@ -260,6 +262,7 @@ function asDialogState(state: Prisma.JsonValue): DialogState {
     q7WarehouseQuery: typed.q7WarehouseQuery,
     q7CityPage: typeof typed.q7CityPage === "number" ? typed.q7CityPage : undefined,
     q7WarehousePage: typeof typed.q7WarehousePage === "number" ? typed.q7WarehousePage : undefined,
+    q2CoursePage: typeof typed.q2CoursePage === "number" ? typed.q2CoursePage : 0,
   };
 }
 
@@ -464,34 +467,44 @@ async function loadCourseBySelection(schoolId: string, selection: string): Promi
   };
 }
 
-const MAX_COURSES_INLINE = 100;
+const COURSE_PAGE_SIZE = 7;
 const TELEGRAM_INLINE_BTN_TEXT_MAX = 64;
 
 async function courseSelectionReplyMarkup(
   schoolId: string,
+  page = 0,
 ): Promise<{ replyMarkup: SendMessageInput["replyMarkup"] | undefined; courseCount: number }> {
-  const courses = await prisma.course.findMany({
+  const allCourses = await prisma.course.findMany({
     where: { schoolId },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     select: { id: true, title: true },
-    take: MAX_COURSES_INLINE,
+    take: 200,
   });
-  if (courses.length === 0) {
+  if (allCourses.length === 0) {
     return { replyMarkup: undefined, courseCount: 0 };
   }
-  return {
-    replyMarkup: {
-      inline_keyboard: courses.map((c) => [
-        {
-          text:
-            c.title.length > TELEGRAM_INLINE_BTN_TEXT_MAX
-              ? `${c.title.slice(0, TELEGRAM_INLINE_BTN_TEXT_MAX - 1)}…`
-              : c.title,
-          callback_data: c.id,
-        },
-      ]),
+  const totalPages = Math.ceil(allCourses.length / COURSE_PAGE_SIZE);
+  const safePage = Math.min(Math.max(0, page), totalPages - 1);
+  const pageCourses = allCourses.slice(safePage * COURSE_PAGE_SIZE, (safePage + 1) * COURSE_PAGE_SIZE);
+
+  const courseButtons: TelegramInlineKeyboardButton[][] = pageCourses.map((c) => [
+    {
+      text:
+        c.title.length > TELEGRAM_INLINE_BTN_TEXT_MAX
+          ? `${c.title.slice(0, TELEGRAM_INLINE_BTN_TEXT_MAX - 1)}…`
+          : c.title,
+      callback_data: c.id,
     },
-    courseCount: courses.length,
+  ]);
+
+  const navRow: TelegramInlineKeyboardButton[] = [];
+  if (safePage > 0) navRow.push({ text: "← Назад", callback_data: "course_page_prev" });
+  if (safePage < totalPages - 1) navRow.push({ text: "Вперед →", callback_data: "course_page_next" });
+  if (navRow.length > 0) courseButtons.push(navRow);
+
+  return {
+    replyMarkup: { inline_keyboard: courseButtons },
+    courseCount: allCourses.length,
   };
 }
 
@@ -499,8 +512,9 @@ async function sendQ2CourseIntro(
   school: SchoolContext,
   telegramClient: TelegramClient,
   chatId: string,
+  page = 0,
 ) {
-  const { replyMarkup, courseCount } = await courseSelectionReplyMarkup(school.id);
+  const { replyMarkup, courseCount } = await courseSelectionReplyMarkup(school.id, page);
   await sendTemplateMessage(
     school,
     telegramClient,
@@ -550,6 +564,8 @@ async function finalizeApplication(
       deliveryCountry: dialogState.deliveryCountry,
       deliveryPhone: dialogState.deliveryPhone,
       deliveryEmail: dialogState.deliveryEmail,
+      recipientName: dialogState.recipientName,
+      recipientPhone: dialogState.recipientPhone,
       score: dialogState.score,
       feedbackText: dialogState.feedbackText,
       status: "submitted",
@@ -636,8 +652,8 @@ function buildUserConfirmationSummary(state: DialogState): string {
   lines.push(`👤 ПІБ (англійською): ${state.studentNameEn?.trim() || "—"}`);
 
   const anyBprEnabled = state.selectedCourses.some((c) => c.bprEnabled);
-  lines.push(`🧮 БПР: ${anyBprEnabled ? "потрібне" : "не потрібне"}`);
   if (anyBprEnabled) {
+    lines.push("🧮 БПР: потрібне");
     for (const c of state.selectedCourses) {
       if (!c.bprEnabled) continue;
       const specLink = c.bprSpecialtyCheckLink?.trim() || "—";
@@ -650,22 +666,28 @@ function buildUserConfirmationSummary(state: DialogState): string {
   const mode = state.deliveryMode ?? "none";
   if (mode === "ua") {
     lines.push("📦 Доставка: по Україні (Нова Пошта)");
+    lines.push(`   Отримувач: ${state.recipientName?.trim() || "—"}`);
+    lines.push(`   Тел. отримувача: ${state.recipientPhone?.trim() || "—"}`);
     lines.push(`   Місто: ${state.deliveryCity?.trim() || "—"}`);
     lines.push(`   Відділення: ${state.deliveryBranch?.trim() || "—"}`);
   } else if (mode === "abroad") {
-    lines.push("📦 Доставка: за кордон");
-    const addr = state.deliveryAddress?.trim();
-    if (addr) {
-      lines.push(`   Дані для ТТН / адреса:\n${addr}`);
-    }
-    const city = state.deliveryCity?.trim();
-    const country = state.deliveryCountry?.trim();
-    const phone = state.deliveryPhone?.trim();
     const email = state.deliveryEmail?.trim();
-    if (city && city !== "—") lines.push(`   Місто: ${city}`);
-    if (country && country !== "—") lines.push(`   Країна: ${country}`);
-    if (phone && phone !== "—") lines.push(`   Телефон: ${phone}`);
-    if (email && email !== "—") lines.push(`   Email: ${email}`);
+    const addr = state.deliveryAddress?.trim();
+    if (email && !addr) {
+      // Electronic abroad: only email was collected
+      lines.push("📧 Доставка: за кордон (електронний сертифікат)");
+      lines.push(`   Email: ${email}`);
+    } else {
+      lines.push("📦 Доставка: за кордон (паперовий)");
+      if (addr) lines.push(`   Дані для ТТН / адреса:\n${addr}`);
+      const city = state.deliveryCity?.trim();
+      const country = state.deliveryCountry?.trim();
+      const phone = state.deliveryPhone?.trim();
+      if (city && city !== "—") lines.push(`   Місто: ${city}`);
+      if (country && country !== "—") lines.push(`   Країна: ${country}`);
+      if (phone && phone !== "—") lines.push(`   Телефон: ${phone}`);
+      if (email && email !== "—") lines.push(`   Email: ${email}`);
+    }
   } else {
     lines.push("📦 Доставка: не потрібна (лише електронний сертифікат або не застосовується)");
   }
@@ -977,21 +999,46 @@ export async function processTelegramDialog(input: DialogProcessInput) {
         where: { id: session.id },
         data: {
           currentStep: "q2_course",
-          state: { ...state, started: true },
+          state: { ...state, started: true, q2CoursePage: 0 },
         },
       });
-      await sendQ2CourseIntro(school, telegramClient, incoming.chatId);
+      await sendQ2CourseIntro(school, telegramClient, incoming.chatId, 0);
       return;
     }
     case "q2_course": {
       if (!replyValue) {
-        await sendQ2CourseIntro(school, telegramClient, incoming.chatId);
+        await sendQ2CourseIntro(school, telegramClient, incoming.chatId, state.q2CoursePage ?? 0);
         return;
       }
 
       /** Старе повідомлення з кнопкою «Старт» лишається в чаті; повторний тиск шле callback_data «старт», а не id курсу. */
       if (isStartCommand(replyValue)) {
-        await sendQ2CourseIntro(school, telegramClient, incoming.chatId);
+        await sendQ2CourseIntro(school, telegramClient, incoming.chatId, 0);
+        return;
+      }
+
+      // Pagination callbacks — update page without advancing the dialog step
+      if (replyValue === "course_page_prev" || replyValue === "course_page_next") {
+        const allCourses = await prisma.course.findMany({
+          where: { schoolId: school.id },
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          select: { id: true, title: true },
+          take: 200,
+        });
+        const totalPages = Math.max(1, Math.ceil(allCourses.length / COURSE_PAGE_SIZE));
+        const curPage = Math.min(Math.max(0, state.q2CoursePage ?? 0), totalPages - 1);
+        const newPage = replyValue === "course_page_next"
+          ? Math.min(curPage + 1, totalPages - 1)
+          : Math.max(0, curPage - 1);
+        await prisma.userSession.update({
+          where: { id: session.id },
+          data: { state: { ...state, q2CoursePage: newPage } as Prisma.InputJsonValue },
+        });
+        const { replyMarkup } = await courseSelectionReplyMarkup(school.id, newPage);
+        await replaceCallbackListMessage(telegramClient, school.telegramBotToken, incoming, {
+          text: TEMPLATE_FALLBACKS.q2_course_intro,
+          replyMarkup: replyMarkup ?? { inline_keyboard: [] },
+        });
         return;
       }
 
@@ -1002,7 +1049,7 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           chatId: incoming.chatId,
           text: "Курс не знайдено. Оберіть кнопкою нижче або надішліть точну назву курсу.",
         });
-        await sendQ2CourseIntro(school, telegramClient, incoming.chatId);
+        await sendQ2CourseIntro(school, telegramClient, incoming.chatId, state.q2CoursePage ?? 0);
         return;
       }
       if (state.selectedCourses.some((c) => c.courseId === course.courseId)) {
@@ -1011,13 +1058,14 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           chatId: incoming.chatId,
           text: "Цей курс уже додано до заявки. Оберіть інший курс або поверніться до кроку «Перейти далі».",
         });
-        await sendQ2CourseIntro(school, telegramClient, incoming.chatId);
+        await sendQ2CourseIntro(school, telegramClient, incoming.chatId, state.q2CoursePage ?? 0);
         return;
       }
 
       const nextState: DialogState = {
         ...state,
         selectedCourses: [...state.selectedCourses, course],
+        q2CoursePage: 0,
       };
       await prisma.userSession.update({
         where: { id: session.id },
@@ -1344,9 +1392,9 @@ export async function processTelegramDialog(input: DialogProcessInput) {
       if (replyValue === "q4_add_course") {
         await prisma.userSession.update({
           where: { id: session.id },
-          data: { currentStep: "q2_course" },
+          data: { currentStep: "q2_course", state: { ...state, q2CoursePage: 0 } as Prisma.InputJsonValue },
         });
-        await sendQ2CourseIntro(school, telegramClient, incoming.chatId);
+        await sendQ2CourseIntro(school, telegramClient, incoming.chatId, 0);
         return;
       }
       if (replyValue === "q4_continue") {
@@ -1479,14 +1527,14 @@ export async function processTelegramDialog(input: DialogProcessInput) {
               state: {
                 ...state,
                 deliveryMode: "ua",
-                q7SubStep: "ua_city_input",
+                q7SubStep: "ua_recipient_name",
               } as Prisma.InputJsonValue,
             },
           });
           await telegramClient.sendMessage({
             botToken: school.telegramBotToken,
             chatId: incoming.chatId,
-            text: "Введіть лише назву населеного пункту для пошуку відділення Нової пошти.",
+            text: "Введіть прізвище та ім'я отримувача (наприклад: Іванов Іван):",
           });
           return;
         }
@@ -1552,6 +1600,64 @@ export async function processTelegramDialog(input: DialogProcessInput) {
             state: {
               ...state,
               deliveryMode: "ua",
+              q7SubStep: "ua_recipient_name",
+            } as Prisma.InputJsonValue,
+          },
+        });
+        await telegramClient.sendMessage({
+          botToken: school.telegramBotToken,
+          chatId: incoming.chatId,
+          text: "Введіть прізвище та ім'я отримувача (наприклад: Іванов Іван):",
+        });
+        return;
+      }
+
+      // --- UA: Recipient name ---
+      if (subStep === "ua_recipient_name") {
+        const name = (replyValue ?? "").trim();
+        if (!name) {
+          await telegramClient.sendMessage({
+            botToken: school.telegramBotToken,
+            chatId: incoming.chatId,
+            text: "Будь ласка, введіть прізвище та ім'я отримувача текстом.",
+          });
+          return;
+        }
+        await prisma.userSession.update({
+          where: { id: session.id },
+          data: {
+            state: {
+              ...state,
+              recipientName: name,
+              q7SubStep: "ua_recipient_phone",
+            } as Prisma.InputJsonValue,
+          },
+        });
+        await telegramClient.sendMessage({
+          botToken: school.telegramBotToken,
+          chatId: incoming.chatId,
+          text: "Введіть телефон отримувача у форматі 380XXXXXXXXX (12 цифр без пробілів та дефісів):",
+        });
+        return;
+      }
+
+      // --- UA: Recipient phone ---
+      if (subStep === "ua_recipient_phone") {
+        const phone = (replyValue ?? "").trim().replace(/\s+/g, "");
+        if (!/^380\d{9}$/.test(phone)) {
+          await telegramClient.sendMessage({
+            botToken: school.telegramBotToken,
+            chatId: incoming.chatId,
+            text: "Невірний формат. Введіть телефон у форматі 380XXXXXXXXX (12 цифр, наприклад: 380501234567):",
+          });
+          return;
+        }
+        await prisma.userSession.update({
+          where: { id: session.id },
+          data: {
+            state: {
+              ...state,
+              recipientPhone: phone,
               q7SubStep: "ua_city_input",
             } as Prisma.InputJsonValue,
           },
@@ -1570,23 +1676,18 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           await prisma.userSession.update({
             where: { id: session.id },
             data: {
-              currentStep: "q8_score",
               state: {
                 ...state,
                 deliveryMode: "abroad",
-                q7SubStep: undefined,
+                q7SubStep: "abroad_electronic_email",
               } as Prisma.InputJsonValue,
             },
           });
-          await sendTemplateMessage(
-            school,
-            telegramClient,
-            incoming.chatId,
-            "q8_score",
-            TEMPLATE_FALLBACKS.q8_score,
-            {},
-            scoreReplyMarkup(),
-          );
+          await telegramClient.sendMessage({
+            botToken: school.telegramBotToken,
+            chatId: incoming.chatId,
+            text: "Введіть, будь ласка, email для надсилання електронного сертифіката (PDF) 📧",
+          });
           return;
         }
         if (replyValue === "q7_abroad_physical") {
@@ -1607,6 +1708,41 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           });
           return;
         }
+      }
+
+      // --- Abroad: collect email for electronic certificate ---
+      if (subStep === "abroad_electronic_email") {
+        const email = (replyValue ?? "").trim();
+        if (!email || !email.includes("@")) {
+          await telegramClient.sendMessage({
+            botToken: school.telegramBotToken,
+            chatId: incoming.chatId,
+            text: "Будь ласка, введіть коректний email-адрес (наприклад: name@example.com) 📧",
+          });
+          return;
+        }
+        await prisma.userSession.update({
+          where: { id: session.id },
+          data: {
+            currentStep: "q8_score",
+            state: {
+              ...state,
+              deliveryMode: "abroad",
+              deliveryEmail: email,
+              q7SubStep: undefined,
+            } as Prisma.InputJsonValue,
+          },
+        });
+        await sendTemplateMessage(
+          school,
+          telegramClient,
+          incoming.chatId,
+          "q8_score",
+          TEMPLATE_FALLBACKS.q8_score,
+          {},
+          scoreReplyMarkup(),
+        );
+        return;
       }
 
       // --- Abroad: collect address ---

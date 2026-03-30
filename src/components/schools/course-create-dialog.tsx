@@ -57,6 +57,9 @@ type FormState = {
   bprEnabled: boolean;
   bprSpecialtyCheckLink: string;
   bprTestLink: string;
+  delayedMessageEnabled: boolean;
+  delayedMessageText: string;
+  delayedMessageDays: number;
 };
 
 const emptyForm: FormState = {
@@ -68,6 +71,9 @@ const emptyForm: FormState = {
   bprEnabled: false,
   bprSpecialtyCheckLink: "",
   bprTestLink: "",
+  delayedMessageEnabled: false,
+  delayedMessageText: "",
+  delayedMessageDays: 1,
 };
 
 const certificateSelectLabels: Record<CertType, string> = {
@@ -168,6 +174,9 @@ export function CourseCreateDialog({
         bprEnabled: form.bprEnabled,
         bprSpecialtyCheckLink: form.bprSpecialtyCheckLink,
         bprTestLink: form.bprTestLink,
+        delayedMessageEnabled: form.delayedMessageEnabled,
+        delayedMessageText: form.delayedMessageText,
+        delayedMessageDays: Number(form.delayedMessageDays),
       });
       if (!parsed.success) {
         const message = parsed.error.issues[0]?.message ?? "Некоректні дані";
@@ -322,16 +331,70 @@ export function CourseCreateDialog({
           ) : null}
 
           {step === 2 ? (
-            <div className="space-y-2">
-              <Label htmlFor="course-wizard-req">Вимоги та умови</Label>
-              <Textarea
-                id="course-wizard-req"
-                className="min-h-28"
-                value={form.requirementsText}
-                onChange={(e) => setForm((f) => ({ ...f, requirementsText: e.target.value }))}
-                placeholder="Опишіть, що потрібно студенту…"
-                autoFocus
-              />
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="course-wizard-req">Вимоги та умови</Label>
+                <Textarea
+                  id="course-wizard-req"
+                  className="min-h-28"
+                  value={form.requirementsText}
+                  onChange={(e) => setForm((f) => ({ ...f, requirementsText: e.target.value }))}
+                  placeholder="Опишіть, що потрібно студенту…"
+                  autoFocus
+                />
+              </div>
+
+              <Separator />
+
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="course-wizard-delayed"
+                    checked={form.delayedMessageEnabled}
+                    onCheckedChange={(checked) =>
+                      setForm((f) => ({ ...f, delayedMessageEnabled: Boolean(checked) }))
+                    }
+                  />
+                  <Label htmlFor="course-wizard-delayed" className="cursor-pointer">
+                    Відкладене повідомлення
+                  </Label>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  Надіслати повідомлення студенту через N днів після підтвердження заявки.
+                </p>
+              </div>
+
+              {form.delayedMessageEnabled ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="course-wizard-delayed-days">Кількість днів</Label>
+                    <Input
+                      id="course-wizard-delayed-days"
+                      type="number"
+                      min={1}
+                      max={365}
+                      inputMode="numeric"
+                      value={String(form.delayedMessageDays)}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, delayedMessageDays: Number(e.target.value) }))
+                      }
+                      className="max-w-[8rem]"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="course-wizard-delayed-text">Текст повідомлення</Label>
+                    <Textarea
+                      id="course-wizard-delayed-text"
+                      className="min-h-24"
+                      value={form.delayedMessageText}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, delayedMessageText: e.target.value }))
+                      }
+                      placeholder="Текст, який буде надіслано студенту…"
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
 

@@ -76,3 +76,22 @@ export async function sendConfirmationNotifications(
     data: { confirmationNotifiedAt: new Date() },
   });
 }
+
+export async function sendRejectionNotification(
+  applicationId: string,
+  messageText: string,
+): Promise<void> {
+  const application = await prisma.application.findUnique({
+    where: { id: applicationId },
+    select: {
+      chatId: true,
+      schoolId: true,
+      school: { select: { telegramBotTokenEnc: true } },
+    },
+  });
+  if (!application) return;
+
+  const botToken = decryptSecret(application.school.telegramBotTokenEnc);
+  const telegramClient = createTelegramClientWithLogging(application.schoolId);
+  await telegramClient.sendMessage({ botToken, chatId: application.chatId, text: messageText });
+}
