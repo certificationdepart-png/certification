@@ -76,7 +76,7 @@ export default async function AdminLayout({
               </span>
             </div>
             <div className="flex items-center gap-4">
-              <SystemStatusLights />
+              {/* <SystemStatusLights /> */}
               <ThemeToggle />
               <div className="text-sm text-muted-foreground">
                 {session.user.email}
