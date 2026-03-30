@@ -11,7 +11,13 @@ import { routes } from "@/lib/routes";
 
 import { applicationUpdateSchema } from "@/services/validation";
 
-import { useApplicationsListQuery, useDeleteApplicationMutation, usePatchApplicationMutation } from "@/hooks/api";
+import {
+  useApplicationsListQuery,
+  useDeleteApplicationMutation,
+  usePatchApplicationMutation,
+  useRejectionReasonsQuery,
+  type RejectionReasonRow,
+} from "@/hooks/api";
 import { ApiError } from "@/lib/api-http";
 
 import {
@@ -24,6 +30,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { ApplicationsFilters } from "./applications-filters";
 import type { SchoolOption } from "./applications-types";
 import { STATUSES } from "./application-statuses";
@@ -42,6 +55,8 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
   const patchApplication = usePatchApplicationMutation();
   const deleteApplication = useDeleteApplicationMutation();
   const [deleteTarget, setDeleteTarget] = useState<string | string[] | null>(null);
+  const [pendingRejectionId, setPendingRejectionId] = useState<string | null>(null);
+  const [selectedReasonId, setSelectedReasonId] = useState("");
 
   const [schoolId, setSchoolId] = useQueryState(
     "schoolId",
@@ -61,6 +76,11 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const selectedSchoolId = schoolId;
+  const { data: reasonsPayload } = useRejectionReasonsQuery(selectedSchoolId, {
+    enabled: Boolean(selectedSchoolId),
+  });
+  const rejectionReasons: RejectionReasonRow[] = reasonsPayload?.data ?? [];
+
   const selectedStatuses = useMemo(
     () =>
       status.filter(
@@ -137,6 +157,24 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
     }
   }
 
+  async function handleConfirmKanbanRejection() {
+    if (!pendingRejectionId || !selectedReasonId) return;
+    const applicationId = pendingRejectionId;
+    setUpdatingId(applicationId);
+    setPendingRejectionId(null);
+    try {
+      await patchApplication.mutateAsync({
+        applicationId,
+        body: { status: "rejected", rejectionReasonId: selectedReasonId },
+      });
+      toast.success("Заявку відхилено");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Не вдалося відхилити заявку");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   const handleOpen = (id: string) => {
     router.push(applicationDetailUrl(id));
   };
@@ -145,6 +183,12 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
 
   const handleDragStatusChange = async (applicationId: string, newStatus: ApplicationStatus) => {
     if (updatingId) return;
+
+    if (newStatus === "rejected" && rejectionReasons.length > 0) {
+      setSelectedReasonId(rejectionReasons[0]?.id ?? "");
+      setPendingRejectionId(applicationId);
+      return;
+    }
 
     setUpdatingId(applicationId);
     try {
@@ -263,6 +307,44 @@ export function ApplicationsBoardClient({ schools }: { schools: SchoolOption[] }
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={Boolean(pendingRejectionId)} onOpenChange={(open) => { if (!open) setPendingRejectionId(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Оберіть причину відхилення</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {rejectionReasons.map((reason) => (
+              <label key={reason.id} className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 hover:bg-muted/50">
+                <input
+                  type="radio"
+                  name="kanban-rejection-reason"
+                  value={reason.id}
+                  checked={selectedReasonId === reason.id}
+                  onChange={() => setSelectedReasonId(reason.id)}
+                  className="mt-0.5"
+                />
+                <div>
+                  <div className="text-sm font-medium">{reason.label}</div>
+                  <div className="text-muted-foreground mt-0.5 text-xs line-clamp-2">{reason.messageText}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setPendingRejectionId(null)}>
+              Скасувати
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!selectedReasonId || patchApplication.isPending}
+              onClick={() => void handleConfirmKanbanRejection()}
+            >
+              {patchApplication.isPending ? "Відхилення…" : "Підтвердити"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
