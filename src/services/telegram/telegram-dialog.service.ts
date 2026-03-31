@@ -693,6 +693,8 @@ function buildUserConfirmationSummary(state: DialogState): string {
     }
   } else {
     lines.push("📦 Доставка: не потрібна (лише електронний сертифікат або не застосовується)");
+    const email = state.deliveryEmail?.trim();
+    if (email && email !== "—") lines.push(`   📧 Email: ${email}`);
   }
 
   lines.push(`⭐ Оцінка (1–10): ${state.score != null ? String(state.score) : "—"}`);
