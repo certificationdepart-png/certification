@@ -99,7 +99,8 @@ export type Q7SubStep =
   | "ua_branch_select"
   | "abroad_choice"
   | "abroad_electronic_email"
-  | "abroad_address";
+  | "abroad_address"
+  | "electronic_email";
 
 export type DialogState = {
   started: boolean;

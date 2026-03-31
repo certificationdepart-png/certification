@@ -20,6 +20,12 @@ export function createTelegramClientWithLogging(
     async deleteMessage(input) {
       await baseClient.deleteMessage(input);
     },
+    async editMessageText(input) {
+      await baseClient.editMessageText(input);
+    },
+    async editMessageReplyMarkup(input) {
+      await baseClient.editMessageReplyMarkup(input);
+    },
     async sendPhoto(input) {
       await baseClient.sendPhoto(input);
       await prisma.outgoingMessageLog.create({

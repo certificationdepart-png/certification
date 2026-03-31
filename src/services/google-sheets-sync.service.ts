@@ -70,8 +70,13 @@ export type ApplicationForSync = {
 };
 
 /**
- * Map a single ApplicationCourse to row values for columns A–Q (17 columns).
- * Each course in an application gets its own row with course-specific columns F, N, Q.
+ * Map a single ApplicationCourse to row values for columns A–S (19 columns).
+ * Each course in an application gets its own row with course-specific columns F, P, S.
+ *
+ * Column layout:
+ *   A Статус | B Дата | C TG ID | D Username | E Тип | F Курс | G ПІБ укр | H ПІБ анг |
+ *   I Місто/Адреса | J Відділення | K ПІБ отримувача | L Телефон отримувача |
+ *   M Скріни | N Оцінка | O Відгук | P БПР | Q Посилання (адмін) | R Статус | S Формат
  */
 export function applicationCourseToRowValues(
   app: ApplicationForSync,
@@ -83,26 +88,37 @@ export function applicationCourseToRowValues(
   const deliveryLabel = DELIVERY_LABELS[app.deliveryMode] ?? "—";
   const certFormatLabel = CERTIFICATE_FORMAT_LABELS[ac.certificateFormat] ?? ac.certificateFormat;
 
-  // Columns I and J differ for abroad vs Ukraine delivery
-  let colI: string;
-  let colJ: string;
+  let colI: string;  // Місто / Адреса
+  let colJ: string;  // Відділення
+  let colK: string;  // ПІБ отримувача
+  let colL: string;  // Телефон отримувача
+
   if (app.deliveryMode === "abroad") {
     const country = app.deliveryCountry && app.deliveryCountry !== "—" ? app.deliveryCountry : null;
     const address = app.deliveryAddress && app.deliveryAddress !== "—" ? app.deliveryAddress : null;
     const combined = [country, address].filter(Boolean).join(", ");
     colI = combined.length > 150 ? `${combined.slice(0, 147)}…` : combined || "за кордон";
+    colJ = "";
+    colK = "";
     const phone = app.deliveryPhone && app.deliveryPhone !== "—" ? app.deliveryPhone : null;
     const email = app.deliveryEmail && app.deliveryEmail !== "—" ? app.deliveryEmail : null;
     if (!phone && email) {
-      colJ = `Електронний: ${email}`;
+      colL = `Email: ${email}`;
     } else {
-      colJ = [phone, email].filter(Boolean).join(" / ") || "—";
+      colL = [phone, email].filter(Boolean).join(" / ") || "";
     }
-  } else {
+  } else if (app.deliveryMode === "ua") {
     colI = app.deliveryCity ?? "";
-    const branch = app.deliveryBranch ?? "";
-    const recipient = [app.recipientName, app.recipientPhone].filter(Boolean).join(", ");
-    colJ = recipient ? `${branch}${branch ? " / " : ""}Отримувач: ${recipient}` : branch;
+    colJ = app.deliveryBranch ?? "";
+    colK = app.recipientName ?? "";
+    colL = app.recipientPhone ?? "";
+  } else {
+    // deliveryMode === "none" (electronic certificate)
+    colI = "";
+    colJ = "";
+    colK = "";
+    const email = app.deliveryEmail && app.deliveryEmail !== "—" ? app.deliveryEmail : null;
+    colL = email ? `Email: ${email}` : "";
   }
 
   return [
@@ -114,15 +130,17 @@ export function applicationCourseToRowValues(
     ac.course.title,                                                                        // F — single course title
     app.studentNameUa,                                                                      // G
     app.studentNameEn,                                                                      // H
-    colI,                                                                                   // I
-    colJ,                                                                                   // J
-    screenshotCount,                                                                        // K
-    app.score ?? "",                                                                        // L
-    app.feedbackText ?? "",                                                                 // M
-    ac.bprRequired ? "Так" : "Ні",                                                         // N — per-course BPR flag
-    toAdminApplicationHyperlink(adminApplicationUrl),                                       // O
-    statusLabel,                                                                            // P
-    certFormatLabel,                                                                        // Q — certificate format chosen by student
+    colI,                                                                                   // I — Місто / Адреса
+    colJ,                                                                                   // J — Відділення
+    colK,                                                                                   // K — ПІБ отримувача
+    colL,                                                                                   // L — Телефон отримувача
+    screenshotCount,                                                                        // M
+    app.score ?? "",                                                                        // N
+    app.feedbackText ?? "",                                                                 // O
+    ac.bprRequired ? "Так" : "Ні",                                                         // P — per-course BPR flag
+    toAdminApplicationHyperlink(adminApplicationUrl),                                       // Q
+    statusLabel,                                                                            // R
+    certFormatLabel,                                                                        // S — certificate format chosen by student
   ];
 }
 
@@ -148,6 +166,8 @@ export function applicationToRowValues(
       app.studentNameEn,
       app.deliveryCity ?? "",
       app.deliveryBranch ?? "",
+      "",
+      "",
       screenshotCount,
       app.score ?? "",
       app.feedbackText ?? "",
@@ -260,7 +280,7 @@ async function ensureHeaderRow(
   spreadsheetId: string,
   worksheetTitle: string,
 ): Promise<void> {
-  const range = buildA1Range(worksheetTitle, "A1:Q1");
+  const range = buildA1Range(worksheetTitle, "A1:S1");
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range,
@@ -276,8 +296,10 @@ async function ensureHeaderRow(
     "Курс",
     "ПІБ укр",
     "ПІБ анг",
-    "Місто",
+    "Місто / Адреса",
     "Відділення",
+    "ПІБ отримувача",
+    "Телефон отримувача",
     "Скріни",
     "Оцінка",
     "Відгук",
@@ -386,7 +408,7 @@ export async function upsertApplicationRow(
 
   const publicBaseUrl = resolvePublicAppBaseUrl();
   const adminApplicationUrl = publicBaseUrl ? `${publicBaseUrl}${routes.admin.applicationDetail(applicationId)}` : null;
-  const dataRange = buildA1Range(worksheetTitle, "A:Q");
+  const dataRange = buildA1Range(worksheetTitle, "A:S");
 
   const appForSync = application as unknown as ApplicationForSync & { externalRowId: number | null };
   const legacyRowId: number | null = appForSync.externalRowId;
@@ -405,7 +427,7 @@ export async function upsertApplicationRow(
 
     if (targetRowId != null) {
       // Update the existing row.
-      const range = buildA1Range(worksheetTitle, `A${targetRowId}:Q${targetRowId}`);
+      const range = buildA1Range(worksheetTitle, `A${targetRowId}:S${targetRowId}`);
       await sheets.spreadsheets.values.update({
         spreadsheetId,
         range,

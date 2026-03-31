@@ -91,7 +91,7 @@ const Q1_START_REPLY_MARKUP: NonNullable<SendMessageInput["replyMarkup"]> = {
 
 /** Питання 3 (work-scope): після скріну — «Далі» інлайн. */
 const Q3_NEXT_MARKUP: NonNullable<SendMessageInput["replyMarkup"]> = {
-  inline_keyboard: [[{ text: "➡️ Далі", callback_data: "q3_next" }]],
+  inline_keyboard: [[{ text: "Далі ➡️", callback_data: "q3_next" }]],
 };
 
 /** Питання 4: формат сертифіката (docs/work-scope.md). */
@@ -286,7 +286,7 @@ function buildCityChoiceKeyboard(cities: NovaPoshtaCity[], page: number): Telegr
     navRow.push({ text: "⬅️ Назад", callback_data: "np_city_prev" });
   }
   if (start + NP_CITY_PAGE_SIZE < cities.length) {
-    navRow.push({ text: "➡️ Далі", callback_data: "np_city_next" });
+    navRow.push({ text: "Далі ➡️", callback_data: "np_city_next" });
   }
   if (navRow.length > 0) {
     rows.push(navRow);
@@ -318,7 +318,7 @@ function buildWarehouseChoiceKeyboard(
     navRow.push({ text: "⬅️ Назад", callback_data: "np_wh_prev" });
   }
   if (start + NP_WAREHOUSE_PAGE_SIZE < warehouses.length) {
-    navRow.push({ text: "➡️ Далі", callback_data: "np_wh_next" });
+    navRow.push({ text: "Далі ➡️", callback_data: "np_wh_next" });
   }
   if (navRow.length > 0) {
     rows.push(navRow);
@@ -388,11 +388,14 @@ async function replaceCallbackListMessage(
   next: { text: string; replyMarkup: NonNullable<SendMessageInput["replyMarkup"]> },
 ): Promise<void> {
   if (incoming.updateType === "callback_query" && incoming.callbackMessageId != null) {
-    await telegramClient.deleteMessage({
+    await telegramClient.editMessageText({
       botToken,
       chatId: incoming.chatId,
       messageId: incoming.callbackMessageId,
+      text: next.text,
+      replyMarkup: next.replyMarkup,
     });
+    return;
   }
   await telegramClient.sendMessage({
     botToken,
@@ -498,8 +501,8 @@ async function courseSelectionReplyMarkup(
   ]);
 
   const navRow: TelegramInlineKeyboardButton[] = [];
-  if (safePage > 0) navRow.push({ text: "← Назад", callback_data: "course_page_prev" });
-  if (safePage < totalPages - 1) navRow.push({ text: "Вперед →", callback_data: "course_page_next" });
+  if (safePage > 0) navRow.push({ text: "⬅️ Назад", callback_data: "course_page_prev" });
+  if (safePage < totalPages - 1) navRow.push({ text: "Далі ➡️", callback_data: "course_page_next" });
   if (navRow.length > 0) courseButtons.push(navRow);
 
   return {
@@ -1035,10 +1038,16 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           data: { state: { ...state, q2CoursePage: newPage } as Prisma.InputJsonValue },
         });
         const { replyMarkup } = await courseSelectionReplyMarkup(school.id, newPage);
-        await replaceCallbackListMessage(telegramClient, school.telegramBotToken, incoming, {
-          text: TEMPLATE_FALLBACKS.q2_course_intro,
-          replyMarkup: replyMarkup ?? { inline_keyboard: [] },
-        });
+        if (incoming.updateType === "callback_query" && incoming.callbackMessageId != null) {
+          await telegramClient.editMessageReplyMarkup({
+            botToken: school.telegramBotToken,
+            chatId: incoming.chatId,
+            messageId: incoming.callbackMessageId,
+            replyMarkup: replyMarkup ?? { inline_keyboard: [] },
+          });
+        } else {
+          await sendQ2CourseIntro(school, telegramClient, incoming.chatId, newPage);
+        }
         return;
       }
 
@@ -1437,30 +1446,73 @@ export async function processTelegramDialog(input: DialogProcessInput) {
         const fmt = normalizeCertFormatForEnComparison(course.selectedFormat ?? course.certificateType);
         return fmt === "physical" || fmt === "both";
       });
-      await prisma.userSession.update({
-        where: { id: session.id },
-        data: {
-          currentStep: needsDelivery ? "q7_delivery" : "q8_score",
-          state: {
-            ...state,
-            studentNameEn: replyValue,
-            deliveryMode: needsDelivery ? state.deliveryMode : "none",
-            ...(needsDelivery ? { q7SubStep: "ua_abroad_choice" } : {}),
-          } as Prisma.InputJsonValue,
-        },
+      const hasElectronic = state.selectedCourses.some((course) => {
+        const fmt = normalizeCertFormatForEnComparison(course.selectedFormat ?? course.certificateType);
+        return fmt === "electronic";
       });
-      const nextReplyMarkup: SendMessageInput["replyMarkup"] | undefined = needsDelivery
-        ? Q7_UA_ABROAD_MARKUP
-        : scoreReplyMarkup();
-      await sendTemplateMessage(
-        school,
-        telegramClient,
-        incoming.chatId,
-        needsDelivery ? "q7_delivery" : "q8_score",
-        needsDelivery ? TEMPLATE_FALLBACKS.q7_delivery : TEMPLATE_FALLBACKS.q8_score,
-        {},
-        nextReplyMarkup,
-      );
+      const needsEmail = !needsDelivery && hasElectronic;
+
+      if (needsDelivery) {
+        await prisma.userSession.update({
+          where: { id: session.id },
+          data: {
+            currentStep: "q7_delivery",
+            state: {
+              ...state,
+              studentNameEn: replyValue,
+              q7SubStep: "ua_abroad_choice",
+            } as Prisma.InputJsonValue,
+          },
+        });
+        await sendTemplateMessage(
+          school,
+          telegramClient,
+          incoming.chatId,
+          "q7_delivery",
+          TEMPLATE_FALLBACKS.q7_delivery,
+          {},
+          Q7_UA_ABROAD_MARKUP,
+        );
+      } else if (needsEmail) {
+        await prisma.userSession.update({
+          where: { id: session.id },
+          data: {
+            currentStep: "q7_delivery",
+            state: {
+              ...state,
+              studentNameEn: replyValue,
+              deliveryMode: "none",
+              q7SubStep: "electronic_email",
+            } as Prisma.InputJsonValue,
+          },
+        });
+        await telegramClient.sendMessage({
+          botToken: school.telegramBotToken,
+          chatId: incoming.chatId,
+          text: "Введіть, будь ласка, email для надсилання електронного сертифіката (PDF) 📧",
+        });
+      } else {
+        await prisma.userSession.update({
+          where: { id: session.id },
+          data: {
+            currentStep: "q8_score",
+            state: {
+              ...state,
+              studentNameEn: replyValue,
+              deliveryMode: "none",
+            } as Prisma.InputJsonValue,
+          },
+        });
+        await sendTemplateMessage(
+          school,
+          telegramClient,
+          incoming.chatId,
+          "q8_score",
+          TEMPLATE_FALLBACKS.q8_score,
+          {},
+          scoreReplyMarkup(),
+        );
+      }
       return;
     }
     case "q7_delivery": {
@@ -1474,24 +1526,18 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           await prisma.userSession.update({
             where: { id: session.id },
             data: {
-              currentStep: "q8_score",
               state: {
                 ...state,
                 deliveryMode: "none",
-                q7SubStep: undefined,
+                q7SubStep: "electronic_email",
               } as Prisma.InputJsonValue,
             },
           });
-
-          await sendTemplateMessage(
-            school,
-            telegramClient,
-            incoming.chatId,
-            "q8_score",
-            TEMPLATE_FALLBACKS.q8_score,
-            {},
-            scoreReplyMarkup(),
-          );
+          await telegramClient.sendMessage({
+            botToken: school.telegramBotToken,
+            chatId: incoming.chatId,
+            text: "Введіть, будь ласка, email для надсилання електронного сертифіката (PDF) 📧",
+          });
           return;
         }
 
@@ -1515,6 +1561,41 @@ export async function processTelegramDialog(input: DialogProcessInput) {
           });
           return;
         }
+      }
+
+      // --- Electronic: collect email ---
+      if (subStep === "electronic_email") {
+        const email = (replyValue ?? "").trim();
+        if (!email || !email.includes("@")) {
+          await telegramClient.sendMessage({
+            botToken: school.telegramBotToken,
+            chatId: incoming.chatId,
+            text: "Будь ласка, введіть коректний email-адрес (наприклад: name@example.com) 📧",
+          });
+          return;
+        }
+        await prisma.userSession.update({
+          where: { id: session.id },
+          data: {
+            currentStep: "q8_score",
+            state: {
+              ...state,
+              deliveryMode: "none",
+              deliveryEmail: email,
+              q7SubStep: undefined,
+            } as Prisma.InputJsonValue,
+          },
+        });
+        await sendTemplateMessage(
+          school,
+          telegramClient,
+          incoming.chatId,
+          "q8_score",
+          TEMPLATE_FALLBACKS.q8_score,
+          {},
+          scoreReplyMarkup(),
+        );
+        return;
       }
 
       // --- UA/Abroad choice ---

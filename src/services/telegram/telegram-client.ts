@@ -22,6 +22,26 @@ export type DeleteMessageInput = {
   messageId: number;
 };
 
+export type EditMessageTextInput = {
+  botToken: string;
+  chatId: string;
+  messageId: number;
+  text: string;
+  parseMode?: string;
+  replyMarkup?: {
+    inline_keyboard: TelegramInlineKeyboardButton[][];
+  };
+};
+
+export type EditMessageReplyMarkupInput = {
+  botToken: string;
+  chatId: string;
+  messageId: number;
+  replyMarkup: {
+    inline_keyboard: TelegramInlineKeyboardButton[][];
+  };
+};
+
 export type SendPhotoInput = {
   botToken: string;
   chatId: string;
@@ -56,6 +76,10 @@ export type TelegramClient = {
   sendMessage: (input: SendMessageInput) => Promise<void>;
   /** Не кидає помилку при 4xx (повідомлення вже видалено, термін минув тощо). */
   deleteMessage: (input: DeleteMessageInput) => Promise<void>;
+  /** Редагує текст і/або клавіатуру існуючого повідомлення. Не кидає при 400 (наприклад, "message is not modified"). */
+  editMessageText: (input: EditMessageTextInput) => Promise<void>;
+  /** Оновлює тільки inline-клавіатуру існуючого повідомлення. Не кидає при 400. */
+  editMessageReplyMarkup: (input: EditMessageReplyMarkupInput) => Promise<void>;
   sendPhoto: (input: SendPhotoInput) => Promise<void>;
   sendDocument: (input: SendDocumentInput) => Promise<void>;
   sendMediaGroup: (input: SendMediaGroupInput) => Promise<void>;
@@ -199,6 +223,66 @@ export function createTelegramClient(fetchImpl: typeof fetch = fetch): TelegramC
           throw new Error(`Telegram API error: ${response.status}`);
         }
       });
+    },
+    async editMessageText(input) {
+      try {
+        const response = await fetchImpl(
+          `https://api.telegram.org/bot${input.botToken}/editMessageText`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: input.chatId,
+              message_id: input.messageId,
+              text: input.text,
+              ...(input.parseMode ? { parse_mode: input.parseMode } : {}),
+              ...(input.replyMarkup ? { reply_markup: input.replyMarkup } : {}),
+            }),
+          },
+        );
+        if (!response.ok) {
+          const detail = await response.text();
+          logger.warn("telegram.edit_message_text_http_error", {
+            status: response.status,
+            messageId: input.messageId,
+            detailPreview: detail.slice(0, 200),
+          });
+        }
+      } catch (err) {
+        logger.warn("telegram.edit_message_text_failed", {
+          message: err instanceof Error ? err.message : String(err),
+          messageId: input.messageId,
+        });
+      }
+    },
+    async editMessageReplyMarkup(input) {
+      try {
+        const response = await fetchImpl(
+          `https://api.telegram.org/bot${input.botToken}/editMessageReplyMarkup`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: input.chatId,
+              message_id: input.messageId,
+              reply_markup: input.replyMarkup,
+            }),
+          },
+        );
+        if (!response.ok) {
+          const detail = await response.text();
+          logger.warn("telegram.edit_message_reply_markup_http_error", {
+            status: response.status,
+            messageId: input.messageId,
+            detailPreview: detail.slice(0, 200),
+          });
+        }
+      } catch (err) {
+        logger.warn("telegram.edit_message_reply_markup_failed", {
+          message: err instanceof Error ? err.message : String(err),
+          messageId: input.messageId,
+        });
+      }
     },
     async deleteMessage(input) {
       try {
