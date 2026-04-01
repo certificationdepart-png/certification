@@ -85,7 +85,7 @@ export function NavUser({
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem onSelect={() => setChangePasswordOpen(true)}>
+              <DropdownMenuItem onClick={() => setTimeout(() => setChangePasswordOpen(true), 0)}>
                 <HugeiconsIcon icon={LockPasswordIcon} strokeWidth={2} />
                 Змінити пароль
               </DropdownMenuItem>
