@@ -22,7 +22,8 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { UnfoldMoreIcon, LogoutIcon } from "@hugeicons/core-free-icons"
+import { UnfoldMoreIcon, LogoutIcon, LockPasswordIcon } from "@hugeicons/core-free-icons"
+import { ChangePasswordDialog } from "@/components/change-password-dialog"
 
 export function NavUser({
   user,
@@ -34,6 +35,7 @@ export function NavUser({
   }
 }) {
   const { isMobile } = useSidebar()
+  const [changePasswordOpen, setChangePasswordOpen] = React.useState(false)
   const initials = React.useMemo(() => {
     const parts = user.name
       .split(" ")
@@ -81,6 +83,14 @@ export function NavUser({
                 </div>
               </DropdownMenuLabel>
             </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem onSelect={() => setChangePasswordOpen(true)}>
+                <HugeiconsIcon icon={LockPasswordIcon} strokeWidth={2} />
+                Змінити пароль
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
             <DropdownMenuItem>
               <HugeiconsIcon icon={LogoutIcon} strokeWidth={2} />
               Вийти
@@ -88,6 +98,10 @@ export function NavUser({
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
+      <ChangePasswordDialog
+        open={changePasswordOpen}
+        onOpenChange={setChangePasswordOpen}
+      />
     </SidebarMenu>
   )
 }
