@@ -11,6 +11,7 @@ export const routes = {
     applications: "/applications",
     messageTemplates: "/message-templates",
     sync: "/sync",
+    managers: "/managers",
     applicationDetail: (id: string) => `/applications/${id}`,
   },
 } as const;

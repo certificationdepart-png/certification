@@ -16,8 +16,9 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sessions  Session[]
-  accounts  Account[]
+  sessions     Session[]
+  accounts     Account[]
+  schoolAccess SchoolManagerAccess[]
 }
 
 model School {
@@ -42,8 +43,33 @@ model School {
   syncJobs              SyncJob[]
   outboxEvents          OutboxEvent[]
   rejectionReasons      RejectionReason[]
+  managers              SchoolManagerAccess[]
 
   @@index([createdAt])
+}
+
+model SchoolManagerAccess {
+  id                    String   @id @default(cuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schoolId              String
+  school                School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  canViewApplications   Boolean  @default(false)
+  canManageApplications Boolean  @default(false)
+  canDeleteApplications Boolean  @default(false)
+  canEditSchool         Boolean  @default(false)
+  canManageCourses      Boolean  @default(false)
+  canManageTemplates    Boolean  @default(false)
+  canManageSync         Boolean  @default(false)
+  canCreateSchool       Boolean  @default(false)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([userId, schoolId])
+  @@index([userId])
+  @@index([schoolId])
 }
 
 enum SessionStep {

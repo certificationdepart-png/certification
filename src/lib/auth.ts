@@ -39,12 +39,14 @@ export const auth = betterAuth({
     },
   },
   databaseHooks: {
-    // Ensure every new sign-up gets admin access by default.
-    // (This matches your current requirement: "auto-admin all new sign-ups".)
+    // First registered user becomes admin; all subsequent registrations get role "user"
+    // and must be granted school access explicitly by an admin (PLT-01 RBAC).
     user: {
       create: {
         before: async (user) => {
-          return { data: { ...user, role: "admin" } };
+          const count = await prisma.user.count();
+          const role = count === 0 ? "admin" : "user";
+          return { data: { ...user, role } };
         },
       },
     },

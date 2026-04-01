@@ -143,6 +143,22 @@ export const rejectionReasonCreateSchema = z.object({
 
 export const rejectionReasonUpdateSchema = rejectionReasonCreateSchema.partial();
 
+export const schoolAccessGrantSchema = z.object({
+  schoolId: z.string().min(1),
+  canViewApplications:   z.boolean().default(false),
+  canManageApplications: z.boolean().default(false),
+  canDeleteApplications: z.boolean().default(false),
+  canEditSchool:         z.boolean().default(false),
+  canManageCourses:      z.boolean().default(false),
+  canManageTemplates:    z.boolean().default(false),
+  canManageSync:         z.boolean().default(false),
+  canCreateSchool:       z.boolean().default(false),
+});
+
+export const managerAccessUpdateSchema = z.object({
+  grants: z.array(schoolAccessGrantSchema),
+});
+
 export type SchoolCreateInput = z.infer<typeof schoolCreateSchema>;
 export type SchoolUpdateInput = z.infer<typeof schoolUpdateSchema>;
 export type CourseCreateInput = z.infer<typeof courseCreateSchema>;
@@ -151,4 +167,5 @@ export type TemplateCreateInput = z.infer<typeof templateCreateSchema>;
 export type TemplateUpdateInput = z.infer<typeof templateUpdateSchema>;
 export type ApplicationUpdateInput = z.infer<typeof applicationUpdateSchema>;
 export type RejectionReasonCreateInput = z.infer<typeof rejectionReasonCreateSchema>;
+export type ManagerAccessUpdateInput = z.infer<typeof managerAccessUpdateSchema>;
 export type RejectionReasonUpdateInput = z.infer<typeof rejectionReasonUpdateSchema>;

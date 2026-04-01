@@ -124,6 +124,64 @@ async function syncJobStatsBySchoolId(): Promise<
   return map;
 }
 
+/** Schools accessible to a specific user (manager-scoped). */
+export async function listSchoolsForUser(userId: string) {
+  const access = await prisma.schoolManagerAccess.findMany({
+    where: { userId },
+    select: { schoolId: true },
+  });
+  const ids = access.map((a) => a.schoolId);
+  if (ids.length === 0) return [];
+  const schools = await prisma.school.findMany({
+    where: { id: { in: ids } },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      schoolKey: true,
+      telegramChatId: true,
+      googleSheetId: true,
+      googleSheetUrl: true,
+      secretEncryptionKeyVer: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  return schools.map(mapSchoolPublic);
+}
+
+/** Schools accessible to a specific user with sync stats (manager-scoped). */
+export async function listSchoolsWithSyncStatsForUser(userId: string) {
+  const access = await prisma.schoolManagerAccess.findMany({
+    where: { userId },
+    select: { schoolId: true },
+  });
+  const ids = access.map((a) => a.schoolId);
+  if (ids.length === 0) return [];
+  const schools = await prisma.school.findMany({
+    where: { id: { in: ids } },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      schoolKey: true,
+      telegramChatId: true,
+      googleSheetId: true,
+      googleSheetUrl: true,
+      secretEncryptionKeyVer: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+  const statsMap = await syncJobStatsBySchoolId();
+  return schools.map((school) => ({
+    ...mapSchoolPublic(school),
+    syncStats: statsMap.get(school.id) ?? emptySyncStats(),
+  }));
+}
+
 /** Schools list with aggregated Google Sheets sync queue counts per school (admin table). */
 export async function listSchoolsWithSyncStats() {
   const schools = await prisma.school.findMany({

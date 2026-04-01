@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireApiSession } from "@/lib/api-auth";
+import { requireApiSession, requireSchoolAccess } from "@/lib/api-auth";
 import { handleRouteError } from "@/lib/api-response";
 import { idParamSchema } from "@/lib/api-validation";
 import { prisma } from "@/lib/db";
@@ -13,8 +13,9 @@ type Params = { params: Promise<{ id: string; reasonId: string }> };
 
 export async function PUT(request: Request, { params }: Params) {
   try {
-    await requireApiSession();
+    const session = await requireApiSession(["admin", "manager"]);
     const { id: schoolId, reasonId } = paramsSchema.parse(await params);
+    await requireSchoolAccess(session, schoolId, "canManageTemplates");
     const existing = await prisma.rejectionReason.findFirst({
       where: { id: reasonId, schoolId },
       select: { id: true },
@@ -38,8 +39,9 @@ export async function PUT(request: Request, { params }: Params) {
 
 export async function DELETE(_: Request, { params }: Params) {
   try {
-    await requireApiSession();
+    const session = await requireApiSession(["admin", "manager"]);
     const { id: schoolId, reasonId } = paramsSchema.parse(await params);
+    await requireSchoolAccess(session, schoolId, "canManageTemplates");
     const existing = await prisma.rejectionReason.findFirst({
       where: { id: reasonId, schoolId },
       select: { id: true },
