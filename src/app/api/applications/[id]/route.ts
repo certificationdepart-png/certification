@@ -29,7 +29,7 @@ export async function PATCH(request: Request, { params }: Params) {
 
     const existing = await getApplicationById(id);
     const schoolId = existing.schoolId;
-    await requireSchoolAccess(session, schoolId, "canViewApplications");
+    await requireSchoolAccess(session, schoolId, "canManageApplications");
 
     if (parsed.status === "rejected" && parsed.rejectionReasonId) {
       await rejectApplication(id, schoolId, parsed.rejectionReasonId, session.user.id);

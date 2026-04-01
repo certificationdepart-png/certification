@@ -26,10 +26,13 @@ export function useUpdateManagerAccessMutation() {
       grants: Array<{
         schoolId: string;
         canViewApplications: boolean;
+        canManageApplications: boolean;
         canDeleteApplications: boolean;
         canEditSchool: boolean;
-        canAddSchool: boolean;
-        canAddCourses: boolean;
+        canManageCourses: boolean;
+        canManageTemplates: boolean;
+        canManageSync: boolean;
+        canCreateSchool: boolean;
       }>;
     }) => {
       const res = await fetch(apiRoutes.managerById(userId), {

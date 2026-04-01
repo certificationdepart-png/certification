@@ -4,10 +4,13 @@ import { NotFoundError } from "@/services/errors";
 export type SchoolAccessGrant = {
   schoolId: string;
   canViewApplications: boolean;
+  canManageApplications: boolean;
   canDeleteApplications: boolean;
   canEditSchool: boolean;
-  canAddSchool: boolean;
-  canAddCourses: boolean;
+  canManageCourses: boolean;
+  canManageTemplates: boolean;
+  canManageSync: boolean;
+  canCreateSchool: boolean;
 };
 
 export type SchoolAccessWithName = SchoolAccessGrant & {
@@ -35,10 +38,13 @@ export async function listManagersWithAccess(): Promise<ManagerWithAccess[]> {
         select: {
           schoolId: true,
           canViewApplications: true,
+          canManageApplications: true,
           canDeleteApplications: true,
           canEditSchool: true,
-          canAddSchool: true,
-          canAddCourses: true,
+          canManageCourses: true,
+          canManageTemplates: true,
+          canManageSync: true,
+          canCreateSchool: true,
           school: { select: { name: true } },
         },
         orderBy: { createdAt: "asc" },
@@ -55,10 +61,13 @@ export async function listManagersWithAccess(): Promise<ManagerWithAccess[]> {
       schoolId: a.schoolId,
       schoolName: a.school.name,
       canViewApplications: a.canViewApplications,
+      canManageApplications: a.canManageApplications,
       canDeleteApplications: a.canDeleteApplications,
       canEditSchool: a.canEditSchool,
-      canAddSchool: a.canAddSchool,
-      canAddCourses: a.canAddCourses,
+      canManageCourses: a.canManageCourses,
+      canManageTemplates: a.canManageTemplates,
+      canManageSync: a.canManageSync,
+      canCreateSchool: a.canCreateSchool,
     })),
   }));
 }
@@ -80,10 +89,13 @@ export async function setManagerAccess(
           userId,
           schoolId: g.schoolId,
           canViewApplications: g.canViewApplications,
+          canManageApplications: g.canManageApplications,
           canDeleteApplications: g.canDeleteApplications,
           canEditSchool: g.canEditSchool,
-          canAddSchool: g.canAddSchool,
-          canAddCourses: g.canAddCourses,
+          canManageCourses: g.canManageCourses,
+          canManageTemplates: g.canManageTemplates,
+          canManageSync: g.canManageSync,
+          canCreateSchool: g.canCreateSchool,
         })),
       });
     }

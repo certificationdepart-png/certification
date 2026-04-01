@@ -119,10 +119,13 @@ export type ManagerWithAccess = {
     schoolId: string;
     schoolName: string;
     canViewApplications: boolean;
+    canManageApplications: boolean;
     canDeleteApplications: boolean;
     canEditSchool: boolean;
-    canAddSchool: boolean;
-    canAddCourses: boolean;
+    canManageCourses: boolean;
+    canManageTemplates: boolean;
+    canManageSync: boolean;
+    canCreateSchool: boolean;
   }>;
 };
 

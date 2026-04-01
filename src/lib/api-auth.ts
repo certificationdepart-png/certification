@@ -28,10 +28,13 @@ export function isAdminRole(role?: string | null) {
 
 export type SchoolPermission =
   | "canViewApplications"
+  | "canManageApplications"
   | "canDeleteApplications"
   | "canEditSchool"
-  | "canAddSchool"
-  | "canAddCourses";
+  | "canManageCourses"
+  | "canManageTemplates"
+  | "canManageSync"
+  | "canCreateSchool";
 
 type ResolvedSession = Awaited<ReturnType<typeof requireApiSession>>;
 
@@ -53,11 +56,24 @@ export async function requireSchoolAccess(
   if (!access || !access[permission as keyof typeof access]) throw new ForbiddenError();
 }
 
-/** Check if user has canAddSchool on any of their access rows (global capability). */
-export async function requireCanAddSchool(session: ResolvedSession): Promise<void> {
+/** Check if user has canCreateSchool on any of their access rows (global capability). */
+export async function requireCanCreateSchool(session: ResolvedSession): Promise<void> {
   if (getRole(session) === "admin") return;
   const access = await prisma.schoolManagerAccess.findFirst({
-    where: { userId: session.user.id, canAddSchool: true },
+    where: { userId: session.user.id, canCreateSchool: true },
+    select: { id: true },
+  });
+  if (!access) throw new ForbiddenError();
+}
+
+/** Check if user has ANY access row for a school (used to gate read-only resources). */
+export async function requireAnySchoolAccess(
+  session: ResolvedSession,
+  schoolId: string,
+): Promise<void> {
+  if (getRole(session) === "admin") return;
+  const access = await prisma.schoolManagerAccess.findUnique({
+    where: { userId_schoolId: { userId: session.user.id, schoolId } },
     select: { id: true },
   });
   if (!access) throw new ForbiddenError();

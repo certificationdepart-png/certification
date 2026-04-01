@@ -51,27 +51,36 @@ type SchoolOption = { id: string; name: string };
 type DraftGrant = {
   schoolId: string;
   canViewApplications: boolean;
+  canManageApplications: boolean;
   canDeleteApplications: boolean;
   canEditSchool: boolean;
-  canAddSchool: boolean;
-  canAddCourses: boolean;
+  canManageCourses: boolean;
+  canManageTemplates: boolean;
+  canManageSync: boolean;
+  canCreateSchool: boolean;
 };
 
-const PERMISSION_LABELS: { key: keyof Omit<DraftGrant, "schoolId" | "canAddSchool">; label: string }[] = [
-  { key: "canViewApplications", label: "Перегляд заявок" },
+const PERMISSION_LABELS: { key: keyof Omit<DraftGrant, "schoolId" | "canCreateSchool">; label: string }[] = [
+  { key: "canViewApplications",   label: "Перегляд заявок" },
+  { key: "canManageApplications", label: "Підтвердження / відхилення" },
   { key: "canDeleteApplications", label: "Видалення заявок" },
-  { key: "canEditSchool", label: "Редагування школи" },
-  { key: "canAddCourses", label: "Додавання курсів" },
+  { key: "canEditSchool",         label: "Редагування школи" },
+  { key: "canManageCourses",      label: "Управління курсами" },
+  { key: "canManageTemplates",    label: "Шаблони та причини відхилень" },
+  { key: "canManageSync",         label: "Синхронізація з Google Sheets" },
 ];
 
 function emptyGrant(schoolId: string): DraftGrant {
   return {
     schoolId,
     canViewApplications: false,
+    canManageApplications: false,
     canDeleteApplications: false,
     canEditSchool: false,
-    canAddSchool: false,
-    canAddCourses: false,
+    canManageCourses: false,
+    canManageTemplates: false,
+    canManageSync: false,
+    canCreateSchool: false,
   };
 }
 
@@ -115,13 +124,16 @@ export function ManagersClient({
     const grants: DraftGrant[] = manager.schoolAccess.map((a) => ({
       schoolId: a.schoolId,
       canViewApplications: a.canViewApplications,
+      canManageApplications: a.canManageApplications,
       canDeleteApplications: a.canDeleteApplications,
       canEditSchool: a.canEditSchool,
-      canAddSchool: a.canAddSchool,
-      canAddCourses: a.canAddCourses,
+      canManageCourses: a.canManageCourses,
+      canManageTemplates: a.canManageTemplates,
+      canManageSync: a.canManageSync,
+      canCreateSchool: a.canCreateSchool,
     }));
     setDraftGrants(grants);
-    setGlobalCanAddSchool(manager.schoolAccess.some((a) => a.canAddSchool));
+    setGlobalCanAddSchool(manager.schoolAccess.some((a) => a.canCreateSchool));
     setSelectedManager(manager);
   }, []);
 
@@ -178,7 +190,7 @@ export function ManagersClient({
 
   const handleSave = useCallback(async () => {
     if (!selectedManager) return;
-    const grants = draftGrants.map((g) => ({ ...g, canAddSchool: globalCanAddSchool }));
+    const grants = draftGrants.map((g) => ({ ...g, canCreateSchool: globalCanAddSchool }));
     try {
       await updateMutation.mutateAsync({ userId: selectedManager.id, grants });
       toast.success("Доступ збережено");
@@ -205,19 +217,19 @@ export function ManagersClient({
     () => [
       {
         accessorKey: "name",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Ім'я" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Ім'я" label="Ім'я" />,
         cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
       },
       {
         accessorKey: "email",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Email" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Email" label="Email" />,
         cell: ({ row }) => (
           <span className="text-muted-foreground">{row.original.email}</span>
         ),
       },
       {
         accessorKey: "role",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Роль" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Роль" label="Роль" />,
         cell: ({ row }) => (
           <Badge variant={roleBadgeVariant(row.original.role)}>
             {row.original.role}
@@ -372,7 +384,7 @@ export function ManagersClient({
                             Видалити
                           </Button>
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="flex flex-col gap-1.5">
                           {PERMISSION_LABELS.map(({ key, label }) => (
                             <label key={key} className="flex items-center gap-2 text-sm cursor-pointer">
                               <Checkbox

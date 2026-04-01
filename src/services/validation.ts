@@ -146,10 +146,13 @@ export const rejectionReasonUpdateSchema = rejectionReasonCreateSchema.partial()
 export const schoolAccessGrantSchema = z.object({
   schoolId: z.string().min(1),
   canViewApplications:   z.boolean().default(false),
+  canManageApplications: z.boolean().default(false),
   canDeleteApplications: z.boolean().default(false),
   canEditSchool:         z.boolean().default(false),
-  canAddSchool:          z.boolean().default(false),
-  canAddCourses:         z.boolean().default(false),
+  canManageCourses:      z.boolean().default(false),
+  canManageTemplates:    z.boolean().default(false),
+  canManageSync:         z.boolean().default(false),
+  canCreateSchool:       z.boolean().default(false),
 });
 
 export const managerAccessUpdateSchema = z.object({

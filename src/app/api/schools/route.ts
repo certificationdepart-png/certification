@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getAccessibleSchoolIds, requireApiSession, requireCanAddSchool } from "@/lib/api-auth";
+import { getAccessibleSchoolIds, requireApiSession, requireCanCreateSchool } from "@/lib/api-auth";
 import { handleRouteError } from "@/lib/api-response";
 import { schoolCreateSchema } from "@/services/validation";
 import {
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const session = await requireApiSession(["admin", "manager"]);
-    await requireCanAddSchool(session);
+    await requireCanCreateSchool(session);
     const payload = await request.json();
     const school = await createSchool(schoolCreateSchema.parse(payload));
     return NextResponse.json({ data: school }, { status: 201 });

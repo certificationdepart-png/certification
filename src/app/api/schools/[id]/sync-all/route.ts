@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireApiSession } from "@/lib/api-auth";
+import { requireApiSession, requireSchoolAccess } from "@/lib/api-auth";
 import { handleRouteError } from "@/lib/api-response";
 import { idParamSchema } from "@/lib/api-validation";
 import { prisma } from "@/lib/db";
@@ -10,8 +10,9 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function POST(_request: Request, { params }: Params) {
   try {
-    await requireApiSession();
+    const session = await requireApiSession(["admin", "manager"]);
     const { id: schoolId } = idParamSchema.parse(await params);
+    await requireSchoolAccess(session, schoolId, "canManageSync");
 
     const school = await prisma.school.findUnique({
       where: { id: schoolId },
