@@ -6,3 +6,4 @@ export * from "./use-admin-system";
 export * from "./use-admin-telegram";
 export * from "./use-admin-templates";
 export * from "./use-admin-rejection-reasons";
+export * from "./use-admin-managers";

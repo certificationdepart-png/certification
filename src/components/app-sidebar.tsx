@@ -24,6 +24,7 @@ import {
   DashboardSquare01Icon,
   DatabaseSyncIcon,
   MessageEdit01Icon,
+  UserMultiple02Icon,
 } from "@hugeicons/core-free-icons"
 
 import Link from "next/link"
@@ -34,6 +35,7 @@ type AdminSidebarUser = {
   name: string
   email: string
   avatar?: string | null
+  role?: string | null
 }
 
 function isActivePath(pathname: string, url: string) {
@@ -75,6 +77,12 @@ export function AppSidebar({
       icon: <HugeiconsIcon icon={DatabaseSyncIcon} strokeWidth={2} />,
       isActive: isActivePath(pathname, routes.admin.sync),
     },
+    ...(user.role === "admin" ? [{
+      title: "Менеджери",
+      url: routes.admin.managers,
+      icon: <HugeiconsIcon icon={UserMultiple02Icon} strokeWidth={2} />,
+      isActive: isActivePath(pathname, routes.admin.managers),
+    }] : []),
   ]
 
   return (

@@ -110,6 +110,28 @@ export type HealthResponse = {
   };
 };
 
+export type ManagerWithAccess = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  schoolAccess: Array<{
+    schoolId: string;
+    schoolName: string;
+    canViewApplications: boolean;
+    canDeleteApplications: boolean;
+    canEditSchool: boolean;
+    canAddSchool: boolean;
+    canAddCourses: boolean;
+  }>;
+};
+
+export async function fetchManagers(): Promise<ManagerWithAccess[]> {
+  const res = await fetch(apiRoutes.managers);
+  const json = await readApiJson<{ data: ManagerWithAccess[] }>(res);
+  return json.data ?? [];
+}
+
 export async function fetchHealth(): Promise<HealthResponse> {
   const res = await fetch(apiRoutes.health, { cache: "no-store" });
   if (!res.ok) {

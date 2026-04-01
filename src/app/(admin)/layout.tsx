@@ -61,6 +61,7 @@ export default async function AdminLayout({
                 "Адмін") as string,
             email: (session.user.email ?? "") as string,
             avatar: null,
+            role,
           }}
         />
         <SidebarInset className="min-h-0 self-stretch">
