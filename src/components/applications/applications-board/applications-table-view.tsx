@@ -102,7 +102,10 @@ export function ApplicationsTableView({
       {
         id: "courses",
         header: "Курси",
-        cell: ({ row }) => row.original.courses.map((ac) => ac.course.title).join(", ") || "—",
+        cell: ({ row }) => {
+          const courses = row.original.courses.map((ac) => ac.course.title).join(", ") || "—";
+          return <div className="max-w-[22rem] whitespace-normal break-words">{courses}</div>;
+        },
         enableSorting: false,
       },
       {
