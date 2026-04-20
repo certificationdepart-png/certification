@@ -1,13 +1,13 @@
 /**
  * Google Sheets sync for applications.
  * One row per ApplicationCourse — each course in an application gets its own sheet row.
- * Column mapping from docs/work-scope.md "Заявки" structure (A–Q, 17 columns).
+ * Column mapping from docs/work-scope.md "Заявки" structure (A–S, 19 columns).
  */
 
 import type { ApplicationStatus, CertificateFormat, DeliveryMode } from "@prisma/client";
 
 import { env } from "@/lib/env";
-import { formatDate } from "@/lib/format-datetime";
+import { formatSheetDate } from "@/lib/format-datetime";
 import { observability } from "@/lib/observability";
 import { prisma } from "@/lib/db";
 import { resolvePublicAppBaseUrl } from "@/lib/app-url";
@@ -69,6 +69,12 @@ export type ApplicationForSync = {
   feedbackText: string | null;
 };
 
+type ParsedUpdatedRange = {
+  startColumn: string;
+  endColumn: string;
+  rowNumber: number;
+};
+
 /**
  * Map a single ApplicationCourse to row values for columns A–S (19 columns).
  * Each course in an application gets its own row with course-specific columns F, P, S.
@@ -123,7 +129,7 @@ export function applicationCourseToRowValues(
 
   return [
     statusLabel,                                                                            // A
-    app.createdAt instanceof Date ? formatDate(app.createdAt) : String(app.createdAt),     // B
+    app.createdAt instanceof Date ? formatSheetDate(app.createdAt) : String(app.createdAt), // B
     app.telegramUserId,                                                                     // C
     app.telegramUsername ?? "",                                                             // D
     deliveryLabel,                                                                          // E
@@ -144,6 +150,24 @@ export function applicationCourseToRowValues(
   ];
 }
 
+export function parseUpdatedRange(updatedRange: string): ParsedUpdatedRange | null {
+  const match = updatedRange.match(/!([A-Z]+)(\d+)(?::([A-Z]+)\d+)?$/);
+  if (!match) {
+    return null;
+  }
+
+  const rowNumber = Number.parseInt(match[2], 10);
+  if (!Number.isInteger(rowNumber) || rowNumber < 1) {
+    return null;
+  }
+
+  return {
+    startColumn: match[1],
+    endColumn: match[3] ?? match[1],
+    rowNumber,
+  };
+}
+
 /** @deprecated Use applicationCourseToRowValues instead. Kept for backward compatibility. */
 export function applicationToRowValues(
   app: ApplicationForSync,
@@ -157,7 +181,7 @@ export function applicationToRowValues(
     const deliveryLabel = DELIVERY_LABELS[app.deliveryMode] ?? "—";
     return [
       statusLabel,
-      app.createdAt instanceof Date ? formatDate(app.createdAt) : String(app.createdAt),
+      app.createdAt instanceof Date ? formatSheetDate(app.createdAt) : String(app.createdAt),
       app.telegramUserId,
       app.telegramUsername ?? "",
       deliveryLabel,
@@ -191,13 +215,6 @@ function toAdminApplicationHyperlink(adminApplicationUrl: string | null): string
   // Label can be anything; keep it short to fit better in the sheet UI.
   // UA Sheets locale commonly uses `;` between HYPERLINK args.
   return `=HYPERLINK("${safeUrl}";"Відкрити")`;
-}
-
-function toBprLinkHyperlink(url: string | null, label: string): string {
-  if (!url) return "";
-  const safeUrl = escapeSheetsFormulaString(url);
-  const safeLabel = escapeSheetsFormulaString(label);
-  return `=HYPERLINK("${safeUrl}";"${safeLabel}")`;
 }
 
 function getSheetsClient() {
@@ -281,11 +298,6 @@ async function ensureHeaderRow(
   worksheetTitle: string,
 ): Promise<void> {
   const range = buildA1Range(worksheetTitle, "A1:S1");
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range,
-  });
-  const rows = res.data.values as string[][] | undefined;
 
   const headers = [
     "Статус",
@@ -314,9 +326,15 @@ async function ensureHeaderRow(
     spreadsheetId,
     fields: "sheets.properties.title,sheets.properties.sheetId,sheets.properties.gridProperties.columnCount",
   });
-  const sheetProps = (meta.data.sheets ?? [])
-    .map((s: any) => s.properties)
-    .find((p: any) => p?.title === worksheetTitle);
+  type WorksheetProperties = {
+    title?: string;
+    sheetId?: number | null;
+    gridProperties?: { columnCount?: number | null };
+  };
+
+  const sheetProps = ((meta.data.sheets ?? []) as Array<{ properties?: WorksheetProperties }>)
+    .map((sheet) => sheet.properties)
+    .find((properties): properties is WorksheetProperties => properties?.title === worksheetTitle);
   const columnCount: number = Number(sheetProps?.gridProperties?.columnCount ?? 0);
 
   if (sheetProps?.sheetId != null && columnCount > headers.length) {
@@ -345,6 +363,46 @@ async function ensureHeaderRow(
     valueInputOption: "RAW",
     requestBody: { values: [headers as unknown as string[]] },
   });
+}
+
+async function clearWorksheetRow(
+  sheets: ReturnType<typeof getSheetsClient>,
+  spreadsheetId: string,
+  worksheetTitle: string,
+  rowNumber: number,
+): Promise<void> {
+  await sheets.spreadsheets.values.batchClear({
+    spreadsheetId,
+    requestBody: {
+      ranges: [buildA1Range(worksheetTitle, `A${rowNumber}:ZZ${rowNumber}`)],
+    },
+  });
+}
+
+async function writeWorksheetRow(
+  sheets: ReturnType<typeof getSheetsClient>,
+  spreadsheetId: string,
+  worksheetTitle: string,
+  rowNumber: number,
+  rowValues: (string | number)[],
+): Promise<void> {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: buildA1Range(worksheetTitle, `A${rowNumber}:S${rowNumber}`),
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [rowValues] },
+  });
+}
+
+async function overwriteWorksheetRow(
+  sheets: ReturnType<typeof getSheetsClient>,
+  spreadsheetId: string,
+  worksheetTitle: string,
+  rowNumber: number,
+  rowValues: (string | number)[],
+): Promise<void> {
+  await clearWorksheetRow(sheets, spreadsheetId, worksheetTitle, rowNumber);
+  await writeWorksheetRow(sheets, spreadsheetId, worksheetTitle, rowNumber, rowValues);
 }
 
 /**
@@ -424,18 +482,20 @@ export async function upsertApplicationRow(
     if (targetRowId == null && i === 0 && legacyRowId != null) {
       targetRowId = legacyRowId;
     }
+    if (targetRowId == null) {
+      targetRowId = await findExistingRowNumberForCourse(
+        sheets,
+        spreadsheetId,
+        worksheetTitle,
+        appForSync,
+        ac,
+      );
+    }
 
     if (targetRowId != null) {
-      // Update the existing row.
-      const range = buildA1Range(worksheetTitle, `A${targetRowId}:S${targetRowId}`);
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range,
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: [rowValues] },
-      });
-      // Persist ac.externalRowId if it came from the legacy field.
-      if (!ac.externalRowId) {
+      // Update the existing row and clear stale cells first. This repairs previously shifted rows.
+      await overwriteWorksheetRow(sheets, spreadsheetId, worksheetTitle, targetRowId, rowValues);
+      if (ac.externalRowId !== targetRowId) {
         await prisma.applicationCourse.update({
           where: { id: ac.id },
           data: { externalRowId: targetRowId },
@@ -457,10 +517,14 @@ export async function upsertApplicationRow(
         throw new Error("Failed to get appended row range");
       }
 
-      const match = updatedRange.match(/!A(\d+)/);
-      const rowNumber = match ? parseInt(match[1], 10) : 0;
-      if (rowNumber < 1) {
+      const parsedRange = parseUpdatedRange(updatedRange);
+      if (!parsedRange) {
         throw new Error("Could not determine row number from append response");
+      }
+      const rowNumber = parsedRange.rowNumber;
+
+      if (parsedRange.startColumn !== "A" || parsedRange.endColumn !== "S") {
+        await overwriteWorksheetRow(sheets, spreadsheetId, worksheetTitle, rowNumber, rowValues);
       }
 
       try {
@@ -721,7 +785,7 @@ async function findRowNumberForApplication(
 ): Promise<number | null> {
   // Mapping used by `applicationToRowValues`:
   // B = Date, C = TG ID
-  const expectedDate = formatDate(application.createdAt);
+  const expectedDate = formatSheetDate(application.createdAt);
   const expectedTgId = application.telegramUserId;
 
   const windowSize = 15;
@@ -741,6 +805,52 @@ async function findRowNumberForApplication(
     const c = values[i]?.[1];
     if (b === expectedDate && c === expectedTgId) {
       return row;
+    }
+  }
+
+  return null;
+}
+
+function normalizeSheetCell(value: string | number | undefined): string {
+  return String(value ?? "").trim();
+}
+
+async function findExistingRowNumberForCourse(
+  sheets: ReturnType<typeof getSheetsClient>,
+  spreadsheetId: string,
+  worksheetTitle: string,
+  application: ApplicationForSync & { createdAt: Date; telegramUserId: string },
+  course: ApplicationCourseForSync,
+): Promise<number | null> {
+  const range = buildA1Range(worksheetTitle, "A2:ZZ");
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range,
+  });
+
+  const values = res.data.values ?? [];
+  const expectedDate = formatSheetDate(application.createdAt);
+  const expectedTgId = application.telegramUserId;
+  const expectedCourseTitle = course.course.title;
+  const expectedNameUa = application.studentNameUa;
+  const expectedNameEn = application.studentNameEn;
+  const expectedCertFormat = CERTIFICATE_FORMAT_LABELS[course.certificateFormat] ?? course.certificateFormat;
+
+  for (let i = 0; i < values.length; i++) {
+    const rowValues = values[i] ?? [];
+    const rowNumber = i + 2;
+
+    for (let offset = 0; offset + 18 < rowValues.length; offset++) {
+      if (
+        normalizeSheetCell(rowValues[offset + 1]) === expectedDate &&
+        normalizeSheetCell(rowValues[offset + 2]) === expectedTgId &&
+        normalizeSheetCell(rowValues[offset + 5]) === expectedCourseTitle &&
+        normalizeSheetCell(rowValues[offset + 6]) === expectedNameUa &&
+        normalizeSheetCell(rowValues[offset + 7]) === expectedNameEn &&
+        normalizeSheetCell(rowValues[offset + 18]) === expectedCertFormat
+      ) {
+        return rowNumber;
+      }
     }
   }
 

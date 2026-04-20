@@ -18,6 +18,12 @@ const UK_TIME: Intl.DateTimeFormatOptions = {
   hour12: false,
 };
 
+const UK_SHEET_DATE: Intl.DateTimeFormatOptions = {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+};
+
 function toDate(value: string | Date | number): Date | null {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value;
@@ -57,6 +63,13 @@ export function formatDate(value: string | Date | number): string {
   const d = toDate(value);
   if (!d) return "—";
   return formatUkWeekdayDateYear(d);
+}
+
+/** Spreadsheet-friendly date, e.g. 15.01.2026 (in the local timezone). */
+export function formatSheetDate(value: string | Date | number): string {
+  const d = toDate(value);
+  if (!d) return "—";
+  return new Intl.DateTimeFormat(UK_LOCALE, UK_SHEET_DATE).format(d);
 }
 
 /** Date and time, e.g. Чт 23 Лют' 26, 23:43 (in the local timezone). */

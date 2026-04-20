@@ -7,11 +7,12 @@ vi.mock("@/lib/env", () => ({
   },
 }));
 
-import { formatDate } from "@/lib/format-datetime";
+import { formatSheetDate } from "@/lib/format-datetime";
 import {
   applicationCourseToRowValues,
   type ApplicationCourseForSync,
   type ApplicationForSync,
+  parseUpdatedRange,
 } from "@/services/google-sheets-sync.service";
 
 function makeCourse(overrides?: Partial<ApplicationCourseForSync>): ApplicationCourseForSync {
@@ -36,7 +37,7 @@ const NULL_DELIVERY_FIELDS = {
 
 describe("stage5 Google Sheets sync", () => {
   describe("applicationCourseToRowValues", () => {
-    it("maps a single ApplicationCourse to 17 column values in correct order A-Q", () => {
+    it("maps a single ApplicationCourse to 19 column values in correct order A-S", () => {
       const app: ApplicationForSync = {
         ...NULL_DELIVERY_FIELDS,
         courses: [makeCourse()],
@@ -56,9 +57,9 @@ describe("stage5 Google Sheets sync", () => {
 
       const row = applicationCourseToRowValues(app, makeCourse(), null);
 
-      expect(row).toHaveLength(17);
+      expect(row).toHaveLength(19);
       expect(row[0]).toBe("на перевірці");          // A: status
-      expect(row[1]).toBe(formatDate(app.createdAt)); // B: date
+      expect(row[1]).toBe(formatSheetDate(app.createdAt)); // B: date
       expect(row[2]).toBe("123456");                  // C: TG ID
       expect(row[3]).toBe("student_ua");              // D: username
       expect(row[4]).toBe("Україна");                 // E: delivery type
@@ -67,13 +68,15 @@ describe("stage5 Google Sheets sync", () => {
       expect(row[7]).toBe("Ivan Petrenko");            // H: name EN
       expect(row[8]).toBe("Київ");                    // I: city
       expect(row[9]).toBe("Відділення №1");            // J: branch
-      expect(row[10]).toBe(3);                         // K: screenshots
-      expect(row[11]).toBe(10);                        // L: score
-      expect(row[12]).toBe("Чудовий курс!");           // M: feedback
-      expect(row[13]).toBe("Ні");                      // N: BPR (per-course)
-      expect(row[14]).toBe("");                         // O: admin link (null → "")
-      expect(row[15]).toBe("на перевірці");            // P: status duplicate
-      expect(row[16]).toBe("Електронний");             // Q: certificateFormat
+      expect(row[10]).toBe("");                        // K: recipient name
+      expect(row[11]).toBe("");                        // L: recipient phone/email
+      expect(row[12]).toBe(3);                         // M: screenshots
+      expect(row[13]).toBe(10);                        // N: score
+      expect(row[14]).toBe("Чудовий курс!");           // O: feedback
+      expect(row[15]).toBe("Ні");                      // P: BPR (per-course)
+      expect(row[16]).toBe("");                        // Q: admin link (null → "")
+      expect(row[17]).toBe("на перевірці");            // R: status duplicate
+      expect(row[18]).toBe("Електронний");             // S: certificateFormat
     });
 
     it("reflects per-course BPR and certificateFormat correctly", () => {
@@ -95,8 +98,8 @@ describe("stage5 Google Sheets sync", () => {
       const ac = makeCourse({ bprRequired: true, certificateFormat: "physical" });
       const row = applicationCourseToRowValues(app, ac, null);
 
-      expect(row[13]).toBe("Так");           // N: BPR true
-      expect(row[16]).toBe("Фізичний");      // Q: physical
+      expect(row[15]).toBe("Так");           // P: BPR true
+      expect(row[18]).toBe("Фізичний");      // S: physical
     });
 
     it("produces separate rows for two courses in the same application", () => {
@@ -122,12 +125,12 @@ describe("stage5 Google Sheets sync", () => {
       const row2 = applicationCourseToRowValues(app, ac2, null);
 
       expect(row1[5]).toBe("Курс 1");
-      expect(row1[13]).toBe("Ні");
-      expect(row1[16]).toBe("Електронний");
+      expect(row1[15]).toBe("Ні");
+      expect(row1[18]).toBe("Електронний");
 
       expect(row2[5]).toBe("Курс 2");
-      expect(row2[13]).toBe("Так");
-      expect(row2[16]).toBe("Електронний і фізичний");
+      expect(row2[15]).toBe("Так");
+      expect(row2[18]).toBe("Електронний і фізичний");
 
       // Application-level fields are the same on both rows.
       expect(row1[2]).toBe(row2[2]); // TG ID
@@ -157,9 +160,10 @@ describe("stage5 Google Sheets sync", () => {
       expect(row[4]).toBe("—"); // delivery none
       expect(row[8]).toBe("");   // city null
       expect(row[9]).toBe("");   // branch null
-      expect(row[11]).toBe(""); // score null
-      expect(row[12]).toBe(""); // feedback null
-      expect(row[14]).toBe(""); // admin link null
+      expect(row[12]).toBe(0);  // screenshots default to 0
+      expect(row[13]).toBe(""); // score null
+      expect(row[14]).toBe(""); // feedback null
+      expect(row[16]).toBe(""); // admin link null
     });
 
     it("handles abroad delivery mode with no details", () => {
@@ -180,10 +184,12 @@ describe("stage5 Google Sheets sync", () => {
       };
       const row = applicationCourseToRowValues(app, makeCourse(), null);
       expect(row[4]).toBe("за кордон");
-      expect(row[9]).toBe("—"); // J: no phone, no email
+      expect(row[8]).toBe("за кордон"); // I: fallback abroad label
+      expect(row[9]).toBe(""); // J: no branch for abroad
+      expect(row[11]).toBe(""); // L: no phone/email
     });
 
-    it("formats col J as 'Електронний: {email}' for electronic abroad", () => {
+    it("formats recipient contact column for abroad electronic delivery", () => {
       const app: ApplicationForSync = {
         ...NULL_DELIVERY_FIELDS,
         courses: [],
@@ -201,7 +207,29 @@ describe("stage5 Google Sheets sync", () => {
         deliveryEmail: "student@example.com",
       };
       const row = applicationCourseToRowValues(app, makeCourse(), null);
-      expect(row[9]).toBe("Електронний: student@example.com");
+      expect(row[11]).toBe("Email: student@example.com");
+    });
+  });
+
+  describe("parseUpdatedRange", () => {
+    it("parses updated ranges that start at column A", () => {
+      expect(parseUpdatedRange("'School'!A43:S43")).toEqual({
+        startColumn: "A",
+        endColumn: "S",
+        rowNumber: 43,
+      });
+    });
+
+    it("parses shifted updated ranges and keeps the real row number", () => {
+      expect(parseUpdatedRange("'School'!P43:AH43")).toEqual({
+        startColumn: "P",
+        endColumn: "AH",
+        rowNumber: 43,
+      });
+    });
+
+    it("returns null for invalid updated ranges", () => {
+      expect(parseUpdatedRange("School")).toBeNull();
     });
   });
 });
