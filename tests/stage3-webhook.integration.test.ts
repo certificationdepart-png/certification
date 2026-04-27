@@ -219,6 +219,58 @@ describe("stage3 webhook integration", () => {
     spy.mockRestore();
     vi.useRealTimers();
   });
+
+  it("media album: keeps same media_group_id isolated across different chats", async () => {
+    vi.useFakeTimers();
+    const spy = vi.spyOn(dialogModule, "processTelegramDialog").mockResolvedValue(undefined);
+    const p1 = handleTelegramWebhook({
+      schoolKey: "demo_school",
+      payload: {
+        update_id: 20101,
+        message: {
+          message_id: 10,
+          media_group_id: "same-album-id",
+          chat: { id: 111, type: "private" },
+          from: { id: 222 },
+          photo: [{ file_id: "chat-111-photo", file_unique_id: "u-111", width: 100, height: 100 }],
+        },
+      },
+    });
+    const p2 = handleTelegramWebhook({
+      schoolKey: "demo_school",
+      payload: {
+        update_id: 20102,
+        message: {
+          message_id: 11,
+          media_group_id: "same-album-id",
+          chat: { id: 333, type: "private" },
+          from: { id: 444 },
+          photo: [{ file_id: "chat-333-photo", file_unique_id: "u-333", width: 100, height: 100 }],
+        },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(1600);
+    await Promise.all([p1, p2]);
+
+    expect(spy).toHaveBeenCalledTimes(2);
+    const calls = spy.mock.calls.map((call) => call[0].incoming);
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          chatId: "111",
+          batchedScreenshotFileIds: ["chat-111-photo"],
+        }),
+        expect.objectContaining({
+          chatId: "333",
+          batchedScreenshotFileIds: ["chat-333-photo"],
+        }),
+      ]),
+    );
+
+    spy.mockRestore();
+    vi.useRealTimers();
+  });
 });
 
 describe("stage3 dialog branches", () => {
@@ -817,5 +869,113 @@ describe("stage3 dialog branches", () => {
 
     const messages = telegramClient.sendMessage.mock.calls.map((call) => call[0].text);
     expect(messages.some((text) => text.includes("📎 Скрінів надіслано: 2"))).toBe(true);
+  });
+
+  it("q10_send creates parallel applications with screenshots isolated per session", async () => {
+    const sessionStates = {
+      "session-a": {
+        started: true,
+        selectedCourses: [{ courseId: "c1", title: "Course A", certificateType: "electronic" }],
+        screenshotFileIds: ["a-photo-1", "a-photo-2"],
+        studentNameUa: "Студент А",
+        studentNameEn: "Student A",
+        deliveryMode: "none",
+        score: 10,
+        feedbackText: "",
+      },
+      "session-b": {
+        started: true,
+        selectedCourses: [{ courseId: "c1", title: "Course A", certificateType: "electronic" }],
+        screenshotFileIds: ["b-photo-1"],
+        studentNameUa: "Студент Б",
+        studentNameEn: "Student B",
+        deliveryMode: "none",
+        score: 9,
+        feedbackText: "",
+      },
+    };
+    prismaMock.userSession.upsert.mockImplementation(async (args: { where: { schoolId_chatId: { chatId: string } } }) => {
+      const chatId = args.where.schoolId_chatId.chatId;
+      return {
+        id: chatId === "111" ? "session-a" : "session-b",
+        currentStep: "q10_confirmation",
+        state: { started: true, selectedCourses: [], screenshotFileIds: [] },
+      };
+    });
+    prismaMock.userSession.findUniqueOrThrow.mockImplementation(async (args: { where: { id: keyof typeof sessionStates } }) => ({
+      state: sessionStates[args.where.id],
+    }));
+    prismaMock.application.create.mockImplementation(async (args: { data: { chatId: string; screenshots: { create: Array<{ fileId: string; sortOrder: number }> } } }) => ({
+      id: `app-${args.data.chatId}`,
+      studentNameUa: args.data.chatId === "111" ? "Студент А" : "Студент Б",
+      studentNameEn: args.data.chatId === "111" ? "Student A" : "Student B",
+      score: args.data.chatId === "111" ? 10 : 9,
+      feedbackText: "",
+      courses: [{ course: { title: "Course A" } }],
+      screenshots: args.data.screenshots.create.map((item) => ({ fileId: item.fileId })),
+    }));
+
+    await Promise.all([
+      processTelegramDialog({
+        school,
+        telegramClient,
+        incoming: {
+          updateId: BigInt(17),
+          chatId: "111",
+          telegramUserId: "222",
+          telegramUsername: "student_a",
+          text: null,
+          callbackData: "q10_send",
+          callbackMessageId: 1,
+          screenshotFileId: null,
+          mediaGroupId: null,
+          updateType: "callback_query",
+          raw: {
+            update_id: BigInt(17),
+            callback_query: {
+              id: "cb-a",
+              data: "q10_send",
+              from: { id: 222 },
+              message: { message_id: 1, chat: { id: 111, type: "private" } },
+            },
+          },
+        },
+      }),
+      processTelegramDialog({
+        school,
+        telegramClient,
+        incoming: {
+          updateId: BigInt(18),
+          chatId: "333",
+          telegramUserId: "444",
+          telegramUsername: "student_b",
+          text: null,
+          callbackData: "q10_send",
+          callbackMessageId: 1,
+          screenshotFileId: null,
+          mediaGroupId: null,
+          updateType: "callback_query",
+          raw: {
+            update_id: BigInt(18),
+            callback_query: {
+              id: "cb-b",
+              data: "q10_send",
+              from: { id: 444 },
+              message: { message_id: 1, chat: { id: 333, type: "private" } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const createCalls = prismaMock.application.create.mock.calls.map((call) => call[0].data);
+    const appA = createCalls.find((data) => data.chatId === "111");
+    const appB = createCalls.find((data) => data.chatId === "333");
+
+    expect(appA?.screenshots.create.map((item: { fileId: string }) => item.fileId)).toEqual([
+      "a-photo-1",
+      "a-photo-2",
+    ]);
+    expect(appB?.screenshots.create.map((item: { fileId: string }) => item.fileId)).toEqual(["b-photo-1"]);
   });
 });
