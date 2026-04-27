@@ -266,6 +266,28 @@ function asDialogState(state: Prisma.JsonValue): DialogState {
   };
 }
 
+function mergeScreenshotFileIds(...groups: string[][]): string[] {
+  return [...new Set(groups.flat().filter((id) => id.trim().length > 0))];
+}
+
+async function stateWithLatestScreenshots(
+  sessionId: string,
+  nextState: DialogState,
+): Promise<DialogState> {
+  const latest = await prisma.userSession.findUniqueOrThrow({
+    where: { id: sessionId },
+    select: { state: true },
+  });
+  const latestState = asDialogState(latest.state);
+  return {
+    ...nextState,
+    screenshotFileIds: mergeScreenshotFileIds(
+      latestState.screenshotFileIds,
+      nextState.screenshotFileIds,
+    ),
+  };
+}
+
 const NP_CITY_PAGE_SIZE = 15;
 const NP_CITY_BTN_TEXT_MAX = 60;
 
@@ -1102,10 +1124,10 @@ export async function processTelegramDialog(input: DialogProcessInput) {
       const single = incoming.screenshotFileId ? [incoming.screenshotFileId] : [];
       const additions = [...new Set([...batch, ...single])];
       if (additions.length > 0) {
-        const updated: DialogState = {
+        const updated = await stateWithLatestScreenshots(session.id, {
           ...state,
-          screenshotFileIds: [...state.screenshotFileIds, ...additions],
-        };
+          screenshotFileIds: mergeScreenshotFileIds(state.screenshotFileIds, additions),
+        });
         await prisma.userSession.update({
           where: { id: session.id },
           data: { state: updated as Prisma.InputJsonValue },
@@ -1147,11 +1169,15 @@ export async function processTelegramDialog(input: DialogProcessInput) {
         );
         const lastCourse = selectedCourses[selectedCourses.length - 1];
         if (lastCourse?.bprEnabled) {
+          const nextState = await stateWithLatestScreenshots(session.id, {
+            ...state,
+            selectedCourses,
+          });
           await prisma.userSession.update({
             where: { id: session.id },
             data: {
               currentStep: "q4_bpr_question",
-              state: { ...state, selectedCourses } as Prisma.InputJsonValue,
+              state: nextState as Prisma.InputJsonValue,
             },
           });
           await sendTemplateMessage(
@@ -1165,11 +1191,15 @@ export async function processTelegramDialog(input: DialogProcessInput) {
             "HTML",
           );
         } else {
+          const nextState = await stateWithLatestScreenshots(session.id, {
+            ...state,
+            selectedCourses,
+          });
           await prisma.userSession.update({
             where: { id: session.id },
             data: {
               currentStep: "q4_add_more_courses",
-              state: { ...state, selectedCourses } as Prisma.InputJsonValue,
+              state: nextState as Prisma.InputJsonValue,
             },
           });
           // First: inform about the electronic certificate (no buttons).
@@ -2507,7 +2537,7 @@ export async function processTelegramDialog(input: DialogProcessInput) {
         return;
       }
       const feedbackText = replyValue === "q9_skip" ? "" : replyValue;
-      const stateForQ10: DialogState = { ...state, feedbackText };
+      const stateForQ10 = await stateWithLatestScreenshots(session.id, { ...state, feedbackText });
       await prisma.userSession.update({
         where: { id: session.id },
         data: {
@@ -2624,4 +2654,3 @@ export async function processTelegramDialog(input: DialogProcessInput) {
     }
   }
 }
-

@@ -240,6 +240,9 @@ describe("stage3 dialog branches", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    prismaMock.userSession.findUniqueOrThrow.mockResolvedValue({
+      state: { started: true, selectedCourses: [], screenshotFileIds: [] },
+    });
     prismaMock.messageTemplate.findUnique.mockResolvedValue(null);
     prismaMock.course.findFirst.mockResolvedValue(null);
     prismaMock.application.create.mockResolvedValue({
@@ -707,5 +710,112 @@ describe("stage3 dialog branches", () => {
     const calls = telegramClient.sendMessage.mock.calls.map((c) => c[0]);
     expect(calls[0].text).toContain("нарахування балів БПР");
     expect(calls[0].text).toContain("https://spec.example");
+  });
+
+  it("q3_screenshots preserves screenshots already saved by another Telegram update", async () => {
+    prismaMock.userSession.upsert.mockResolvedValue({
+      id: "session-1",
+      currentStep: "q3_screenshots",
+      state: {
+        started: true,
+        selectedCourses: [{ courseId: "c1", title: "Course A", certificateType: "physical" }],
+        screenshotFileIds: [],
+      },
+    });
+    prismaMock.userSession.findUniqueOrThrow.mockResolvedValue({
+      state: {
+        started: true,
+        selectedCourses: [{ courseId: "c1", title: "Course A", certificateType: "physical" }],
+        screenshotFileIds: ["existing-photo"],
+      },
+    });
+
+    await processTelegramDialog({
+      school,
+      telegramClient,
+      incoming: {
+        updateId: BigInt(15),
+        chatId: "111",
+        telegramUserId: "222",
+        telegramUsername: "student",
+        text: null,
+        callbackData: null,
+        callbackMessageId: null,
+        screenshotFileId: "new-photo",
+        mediaGroupId: null,
+        updateType: "message",
+        raw: {
+          update_id: BigInt(15),
+          message: {
+            message_id: 15,
+            chat: { id: 111, type: "private" },
+            from: { id: 222 },
+            photo: [{ file_id: "new-photo", file_unique_id: "u-new", width: 100, height: 100 }],
+          },
+        },
+      },
+    });
+
+    expect(prismaMock.userSession.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          state: expect.objectContaining({
+            screenshotFileIds: ["existing-photo", "new-photo"],
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("q9_feedback renders confirmation summary from latest screenshots, not stale session snapshot", async () => {
+    const baseState = {
+      started: true,
+      selectedCourses: [{ courseId: "c1", title: "Course A", certificateType: "electronic" }],
+      screenshotFileIds: [],
+      studentNameUa: "Ім'я",
+      studentNameEn: "Name",
+      deliveryMode: "none",
+      score: 10,
+    };
+    prismaMock.userSession.upsert.mockResolvedValue({
+      id: "session-1",
+      currentStep: "q9_feedback",
+      state: baseState,
+    });
+    prismaMock.userSession.findUniqueOrThrow.mockResolvedValue({
+      state: {
+        ...baseState,
+        screenshotFileIds: ["photo-1", "photo-2"],
+      },
+    });
+
+    await processTelegramDialog({
+      school,
+      telegramClient,
+      incoming: {
+        updateId: BigInt(16),
+        chatId: "111",
+        telegramUserId: "222",
+        telegramUsername: "student",
+        text: null,
+        callbackData: "q9_skip",
+        callbackMessageId: 1,
+        screenshotFileId: null,
+        mediaGroupId: null,
+        updateType: "callback_query",
+        raw: {
+          update_id: BigInt(16),
+          callback_query: {
+            id: "cb1",
+            data: "q9_skip",
+            from: { id: 222 },
+            message: { message_id: 1, chat: { id: 111, type: "private" } },
+          },
+        },
+      },
+    });
+
+    const messages = telegramClient.sendMessage.mock.calls.map((call) => call[0].text);
+    expect(messages.some((text) => text.includes("📎 Скрінів надіслано: 2"))).toBe(true);
   });
 });
