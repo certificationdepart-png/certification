@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getApplicationById, listApplications, updateApplicationStatus } from "@/services/applications.service";
 import { sendConfirmationNotifications } from "@/services/telegram/telegram-notification.service";
 
+const enqueueSyncJobMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const upsertApplicationRowMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+
 const prismaMock = vi.hoisted(() => ({
   application: {
     findMany: vi.fn(),
@@ -26,8 +29,8 @@ const prismaMock = vi.hoisted(() => ({
 vi.mock("@/lib/db", () => ({ prisma: prismaMock }));
 
 vi.mock("@/services/google-sheets-sync.service", () => ({
-  enqueueSyncJob: vi.fn().mockResolvedValue(undefined),
-  upsertApplicationRow: vi.fn().mockResolvedValue(undefined),
+  enqueueSyncJob: enqueueSyncJobMock,
+  upsertApplicationRow: upsertApplicationRowMock,
 }));
 
 vi.mock("@/services/telegram/telegram-notification.service", () => ({
@@ -37,6 +40,8 @@ vi.mock("@/services/telegram/telegram-notification.service", () => ({
 describe("applications.service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    enqueueSyncJobMock.mockResolvedValue(undefined);
+    upsertApplicationRowMock.mockResolvedValue(undefined);
   });
 
   describe("listApplications", () => {
@@ -156,6 +161,29 @@ describe("applications.service", () => {
       await updateApplicationStatus("app-1", "school-1", "rejected", "user-1");
 
       expect(sendConfirmationNotifications).not.toHaveBeenCalled();
+    });
+
+    it("queues a sync job when realtime Google Sheets update fails", async () => {
+      const existing = {
+        id: "app-1",
+        status: "submitted",
+        schoolId: "school-1",
+      };
+      const updated = {
+        ...existing,
+        status: "approved",
+        courses: [],
+        screenshots: [],
+        school: {},
+      };
+      prismaMock.application.findFirst.mockResolvedValue(existing);
+      prismaMock.application.update.mockResolvedValue(updated);
+      prismaMock.applicationStatusHistory.create.mockResolvedValue({});
+      upsertApplicationRowMock.mockRejectedValueOnce(new Error("Sheets temporarily unavailable"));
+
+      await updateApplicationStatus("app-1", "school-1", "approved", "user-1");
+
+      expect(enqueueSyncJobMock).toHaveBeenCalledWith("school-1", "app-1");
     });
 
     it("throws NotFoundError when application not found", async () => {

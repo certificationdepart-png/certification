@@ -234,6 +234,8 @@ describe("stage3 dialog branches", () => {
     sendPhoto: vi.fn().mockResolvedValue(undefined),
     sendDocument: vi.fn().mockResolvedValue(undefined),
     sendMediaGroup: vi.fn().mockResolvedValue(undefined),
+    editMessageText: vi.fn().mockResolvedValue(undefined),
+    editMessageReplyMarkup: vi.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(() => {
@@ -396,7 +398,7 @@ describe("stage3 dialog branches", () => {
         data: expect.objectContaining({
           state: expect.objectContaining({
             deliveryMode: "ua",
-            q7SubStep: "ua_city_input",
+            q7SubStep: "ua_recipient_name",
           }),
         }),
       }),
@@ -446,7 +448,7 @@ describe("stage3 dialog branches", () => {
         data: expect.objectContaining({
           state: expect.objectContaining({
             deliveryMode: "abroad",
-            q7SubStep: "abroad_address",
+            q7SubStep: "abroad_choice",
           }),
         }),
       }),
@@ -707,4 +709,3 @@ describe("stage3 dialog branches", () => {
     expect(calls[0].text).toContain("https://spec.example");
   });
 });
-

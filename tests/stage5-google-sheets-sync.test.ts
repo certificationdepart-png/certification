@@ -10,6 +10,7 @@ vi.mock("@/lib/env", () => ({
 import { formatSheetDate } from "@/lib/format-datetime";
 import {
   applicationCourseToRowValues,
+  findMatchingCourseRowNumbers,
   type ApplicationCourseForSync,
   type ApplicationForSync,
   parseUpdatedRange,
@@ -208,6 +209,106 @@ describe("stage5 Google Sheets sync", () => {
       };
       const row = applicationCourseToRowValues(app, makeCourse(), null);
       expect(row[11]).toBe("Email: student@example.com");
+    });
+
+    it("finds duplicate rows for the same admin application link", () => {
+      const app: ApplicationForSync = {
+        ...NULL_DELIVERY_FIELDS,
+        courses: [],
+        createdAt: new Date("2026-03-19T12:00:00Z"),
+        deliveryMode: "ua",
+        status: "approved",
+        telegramUserId: "123456",
+        telegramUsername: "student_ua",
+        studentNameUa: "Іван Петренко",
+        studentNameEn: "Ivan Petrenko",
+        deliveryCity: "Київ",
+        deliveryBranch: "Відділення №1",
+        score: 10,
+        feedbackText: "Чудовий курс!",
+      };
+      const course = makeCourse();
+      const adminUrl = "https://example.com/applications/app-1";
+      const currentRow = applicationCourseToRowValues(app, course, adminUrl);
+      const staleDuplicate = [...currentRow];
+      staleDuplicate[0] = "на перевірці";
+      staleDuplicate[17] = "на перевірці";
+
+      const matches = findMatchingCourseRowNumbers(
+        [
+          currentRow,
+          ["інша заявка"],
+          staleDuplicate,
+        ],
+        app,
+        course,
+        adminUrl,
+        { requireAdminLink: true },
+      );
+
+      expect(matches).toEqual([2, 4]);
+    });
+
+    it("does not match a duplicate row with another application admin link when strict link matching is required", () => {
+      const app: ApplicationForSync = {
+        ...NULL_DELIVERY_FIELDS,
+        courses: [],
+        createdAt: new Date("2026-03-19T12:00:00Z"),
+        deliveryMode: "ua",
+        status: "approved",
+        telegramUserId: "123456",
+        telegramUsername: "student_ua",
+        studentNameUa: "Іван Петренко",
+        studentNameEn: "Ivan Petrenko",
+        deliveryCity: "Київ",
+        deliveryBranch: "Відділення №1",
+        score: 10,
+        feedbackText: null,
+      };
+      const course = makeCourse();
+      const wrongLinkRow = applicationCourseToRowValues(
+        app,
+        course,
+        "https://example.com/applications/another-app",
+      );
+
+      const matches = findMatchingCourseRowNumbers(
+        [wrongLinkRow],
+        app,
+        course,
+        "https://example.com/applications/app-1",
+        { requireAdminLink: true },
+      );
+
+      expect(matches).toEqual([]);
+    });
+
+    it("finds rows shifted to the right by Google Sheets append detection", () => {
+      const app: ApplicationForSync = {
+        ...NULL_DELIVERY_FIELDS,
+        courses: [],
+        createdAt: new Date("2026-03-19T12:00:00Z"),
+        deliveryMode: "none",
+        status: "approved",
+        telegramUserId: "123456",
+        telegramUsername: null,
+        studentNameUa: "Іван Петренко",
+        studentNameEn: "Ivan Petrenko",
+        deliveryCity: null,
+        deliveryBranch: null,
+        score: null,
+        feedbackText: null,
+      };
+      const shiftedRow = [
+        "",
+        "",
+        "",
+        ...applicationCourseToRowValues(app, makeCourse(), null),
+      ];
+
+      const matches = findMatchingCourseRowNumbers([shiftedRow], app, makeCourse(), null);
+
+      expect(matches).toEqual([2]);
     });
   });
 

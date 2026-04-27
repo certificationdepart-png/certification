@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 
 import { env } from "@/lib/env";
 import { applyRateLimit, getRequestFingerprint } from "@/lib/rate-limit";
-import { processOneSyncJob } from "@/services/google-sheets-sync.service";
-import { processOneOutboxEvent } from "@/services/outbox.service";
+import { processSyncQueues } from "@/services/sync-queue-runner.service";
 
 const MAX_JOBS_PER_RUN = 20;
 
@@ -25,28 +24,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let processed = 0;
-  let processedOutbox = 0;
-
-  for (let i = 0; i < MAX_JOBS_PER_RUN; i++) {
-    try {
-      const didProcess = await processOneSyncJob();
-      if (!didProcess) break;
-      processed++;
-    } catch {
-      break;
-    }
-  }
-
-  for (let i = 0; i < MAX_JOBS_PER_RUN; i++) {
-    try {
-      const didProcess = await processOneOutboxEvent();
-      if (!didProcess) break;
-      processedOutbox++;
-    } catch {
-      break;
-    }
-  }
+  const { processed, processedOutbox } = await processSyncQueues({ maxJobs: MAX_JOBS_PER_RUN });
 
   return NextResponse.json({ ok: true, processed, processedOutbox });
 }

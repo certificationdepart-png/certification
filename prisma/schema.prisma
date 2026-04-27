@@ -270,6 +270,7 @@ model SyncJob {
   lastError     String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  nextAttemptAt DateTime?
   processingStartedAt DateTime?
   completedAt   DateTime?
 
@@ -279,6 +280,7 @@ model SyncJob {
 
   @@index([schoolId, status])
   @@index([status])
+  @@index([status, nextAttemptAt, createdAt])
 }
 
 model OutboxEvent {

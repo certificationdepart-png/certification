@@ -5,6 +5,7 @@
  */
 
 import type { ApplicationStatus, CertificateFormat, DeliveryMode } from "@prisma/client";
+import { google } from "googleapis";
 
 import { env } from "@/lib/env";
 import { formatSheetDate } from "@/lib/format-datetime";
@@ -14,6 +15,8 @@ import { resolvePublicAppBaseUrl } from "@/lib/app-url";
 import { routes } from "@/lib/routes";
 
 const MAX_SYNC_ATTEMPTS = 5;
+const BASE_SYNC_RETRY_DELAY_MS = 30_000;
+const MAX_SYNC_RETRY_DELAY_MS = 15 * 60_000;
 
 const STATUS_LABELS: Record<ApplicationStatus, string> = {
   new: "новий",
@@ -74,6 +77,63 @@ type ParsedUpdatedRange = {
   endColumn: string;
   rowNumber: number;
 };
+
+type FindMatchingCourseRowNumbersOptions = {
+  requireAdminLink?: boolean;
+};
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function getErrorResponseStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const response = (error as { response?: { status?: unknown } }).response;
+  if (typeof response?.status === "number") return response.status;
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === "number") return code;
+  if (typeof code === "string" && /^\d+$/.test(code)) return Number.parseInt(code, 10);
+  return null;
+}
+
+function getHeaderValue(headers: unknown, name: string): string | null {
+  if (!headers || typeof headers !== "object") return null;
+  const getter = (headers as { get?: unknown }).get;
+  if (typeof getter === "function") {
+    const value = getter.call(headers, name);
+    return value == null ? null : String(value);
+  }
+  const record = headers as Record<string, unknown>;
+  const lowerName = name.toLowerCase();
+  const value = record[name] ?? record[lowerName];
+  return value == null ? null : String(value);
+}
+
+function parseRetryAfterMs(value: string | null): number | null {
+  if (!value) return null;
+  const seconds = Number.parseInt(value, 10);
+  if (Number.isFinite(seconds)) return Math.max(seconds * 1000, 0);
+  const timestamp = Date.parse(value);
+  if (Number.isFinite(timestamp)) return Math.max(timestamp - Date.now(), 0);
+  return null;
+}
+
+export function getGoogleSheetsRateLimitRetryDelayMs(error: unknown, attempt: number): number | null {
+  const message = getErrorMessage(error).toLowerCase();
+  const status = getErrorResponseStatus(error);
+  const isRateLimited =
+    status === 429 ||
+    message.includes("quota exceeded") ||
+    message.includes("rate limit") ||
+    message.includes("too many requests");
+
+  if (!isRateLimited) return null;
+
+  const headers = (error as { response?: { headers?: unknown } })?.response?.headers;
+  const retryAfterMs = parseRetryAfterMs(getHeaderValue(headers, "retry-after"));
+  const exponentialDelayMs = Math.min(BASE_SYNC_RETRY_DELAY_MS * 2 ** Math.max(attempt - 1, 0), MAX_SYNC_RETRY_DELAY_MS);
+  return Math.min(Math.max(retryAfterMs ?? 0, exponentialDelayMs), MAX_SYNC_RETRY_DELAY_MS);
+}
 
 /**
  * Map a single ApplicationCourse to row values for columns A–S (19 columns).
@@ -217,6 +277,55 @@ function toAdminApplicationHyperlink(adminApplicationUrl: string | null): string
   return `=HYPERLINK("${safeUrl}";"Відкрити")`;
 }
 
+export function findMatchingCourseRowNumbers(
+  rows: unknown[][],
+  application: ApplicationForSync & { createdAt: Date; telegramUserId: string },
+  course: ApplicationCourseForSync,
+  adminApplicationUrl: string | null,
+  options: FindMatchingCourseRowNumbersOptions = {},
+): number[] {
+  const expectedDate = formatSheetDate(application.createdAt);
+  const expectedTgId = application.telegramUserId;
+  const expectedCourseTitle = course.course.title;
+  const expectedNameUa = application.studentNameUa;
+  const expectedNameEn = application.studentNameEn;
+  const expectedCertFormat = CERTIFICATE_FORMAT_LABELS[course.certificateFormat] ?? course.certificateFormat;
+  const expectedAdminLink = toAdminApplicationHyperlink(adminApplicationUrl);
+
+  const strictMatches: number[] = [];
+  const looseMatches: number[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowValues = rows[i] ?? [];
+    const rowNumber = i + 2;
+
+    for (let offset = 0; offset + 18 < rowValues.length; offset++) {
+      if (
+        normalizeSheetCell(rowValues[offset + 1]) !== expectedDate ||
+        normalizeSheetCell(rowValues[offset + 2]) !== expectedTgId ||
+        normalizeSheetCell(rowValues[offset + 5]) !== expectedCourseTitle ||
+        normalizeSheetCell(rowValues[offset + 6]) !== expectedNameUa ||
+        normalizeSheetCell(rowValues[offset + 7]) !== expectedNameEn ||
+        normalizeSheetCell(rowValues[offset + 18]) !== expectedCertFormat
+      ) {
+        continue;
+      }
+
+      const hasExpectedAdminLink =
+        expectedAdminLink.length > 0 &&
+        normalizeSheetCell(rowValues[offset + 16]) === expectedAdminLink;
+
+      if (hasExpectedAdminLink) {
+        strictMatches.push(rowNumber);
+      } else if (!options.requireAdminLink) {
+        looseMatches.push(rowNumber);
+      }
+    }
+  }
+
+  return strictMatches.length > 0 ? strictMatches : looseMatches;
+}
+
 function getSheetsClient() {
   const b64 = env.GOOGLE_SERVICE_ACCOUNT_JSON_B64;
   const jsonFromEnv = env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -276,9 +385,6 @@ function getSheetsClient() {
     );
   }
 
-  // Dynamic import to avoid loading googleapis when env is missing
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { google } = require("googleapis");
   const auth = new google.auth.GoogleAuth({
     credentials: {
       client_email: credentials.client_email,
@@ -489,12 +595,23 @@ export async function upsertApplicationRow(
         worksheetTitle,
         appForSync,
         ac,
+        adminApplicationUrl,
       );
     }
 
     if (targetRowId != null) {
       // Update the existing row and clear stale cells first. This repairs previously shifted rows.
       await overwriteWorksheetRow(sheets, spreadsheetId, worksheetTitle, targetRowId, rowValues);
+      await overwriteDuplicateCourseRows(
+        sheets,
+        spreadsheetId,
+        worksheetTitle,
+        appForSync,
+        ac,
+        adminApplicationUrl,
+        targetRowId,
+        rowValues,
+      );
       if (ac.externalRowId !== targetRowId) {
         await prisma.applicationCourse.update({
           where: { id: ac.id },
@@ -603,7 +720,10 @@ async function claimSyncJobById(jobId: string) {
 
 async function claimNextPendingSyncJob() {
   const job = await prisma.syncJob.findFirst({
-    where: { status: "pending" },
+    where: {
+      status: "pending",
+      OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
+    },
     orderBy: { createdAt: "asc" },
     select: { id: true },
   });
@@ -629,7 +749,11 @@ async function claimNextPendingSyncJob() {
 
 async function claimNextPendingSyncJobForSchool(schoolId: string) {
   const job = await prisma.syncJob.findFirst({
-    where: { status: "pending", schoolId },
+    where: {
+      status: "pending",
+      schoolId,
+      OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
+    },
     orderBy: { createdAt: "asc" },
     select: { id: true },
   });
@@ -664,12 +788,14 @@ async function processClaimedSyncJob(job: { id: string; schoolId: string; applic
         attemptCount: attempt,
         completedAt: new Date(),
         lastError: null,
+        nextAttemptAt: null,
       },
     });
     observability.increment("sync.processed.total");
     return true;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = getErrorMessage(err);
+    const retryDelayMs = getGoogleSheetsRateLimitRetryDelayMs(err, attempt);
     if (attempt >= MAX_SYNC_ATTEMPTS) {
       await prisma.syncError.create({
         data: {
@@ -685,6 +811,7 @@ async function processClaimedSyncJob(job: { id: string; schoolId: string; applic
           attemptCount: attempt,
           completedAt: new Date(),
           lastError: message,
+          nextAttemptAt: null,
         },
       });
       observability.increment("sync.failed.total");
@@ -695,6 +822,7 @@ async function processClaimedSyncJob(job: { id: string; schoolId: string; applic
           status: "pending",
           attemptCount: attempt,
           lastError: message,
+          nextAttemptAt: retryDelayMs == null ? null : new Date(Date.now() + retryDelayMs),
           processingStartedAt: null,
         },
       });
@@ -811,7 +939,7 @@ async function findRowNumberForApplication(
   return null;
 }
 
-function normalizeSheetCell(value: string | number | undefined): string {
+function normalizeSheetCell(value: unknown): string {
   return String(value ?? "").trim();
 }
 
@@ -821,6 +949,7 @@ async function findExistingRowNumberForCourse(
   worksheetTitle: string,
   application: ApplicationForSync & { createdAt: Date; telegramUserId: string },
   course: ApplicationCourseForSync,
+  adminApplicationUrl: string | null,
 ): Promise<number | null> {
   const range = buildA1Range(worksheetTitle, "A2:ZZ");
   const res = await sheets.spreadsheets.values.get({
@@ -829,30 +958,42 @@ async function findExistingRowNumberForCourse(
   });
 
   const values = res.data.values ?? [];
-  const expectedDate = formatSheetDate(application.createdAt);
-  const expectedTgId = application.telegramUserId;
-  const expectedCourseTitle = course.course.title;
-  const expectedNameUa = application.studentNameUa;
-  const expectedNameEn = application.studentNameEn;
-  const expectedCertFormat = CERTIFICATE_FORMAT_LABELS[course.certificateFormat] ?? course.certificateFormat;
+  return findMatchingCourseRowNumbers(values, application, course, adminApplicationUrl)[0] ?? null;
+}
 
-  for (let i = 0; i < values.length; i++) {
-    const rowValues = values[i] ?? [];
-    const rowNumber = i + 2;
+async function overwriteDuplicateCourseRows(
+  sheets: ReturnType<typeof getSheetsClient>,
+  spreadsheetId: string,
+  worksheetTitle: string,
+  application: ApplicationForSync & { createdAt: Date; telegramUserId: string },
+  course: ApplicationCourseForSync,
+  adminApplicationUrl: string | null,
+  targetRowId: number,
+  rowValues: (string | number)[],
+): Promise<void> {
+  if (!adminApplicationUrl) return;
 
-    for (let offset = 0; offset + 18 < rowValues.length; offset++) {
-      if (
-        normalizeSheetCell(rowValues[offset + 1]) === expectedDate &&
-        normalizeSheetCell(rowValues[offset + 2]) === expectedTgId &&
-        normalizeSheetCell(rowValues[offset + 5]) === expectedCourseTitle &&
-        normalizeSheetCell(rowValues[offset + 6]) === expectedNameUa &&
-        normalizeSheetCell(rowValues[offset + 7]) === expectedNameEn &&
-        normalizeSheetCell(rowValues[offset + 18]) === expectedCertFormat
-      ) {
-        return rowNumber;
-      }
-    }
+  const range = buildA1Range(worksheetTitle, "A2:ZZ");
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range,
+  });
+
+  const expectedAdminLink = toAdminApplicationHyperlink(adminApplicationUrl);
+  if (!expectedAdminLink) return;
+
+  const formulaRes = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: buildA1Range(worksheetTitle, "Q2:Q"),
+    valueRenderOption: "FORMULA",
+  });
+  const formulaRows = formulaRes.data.values ?? [];
+
+  const rowNumbers = findMatchingCourseRowNumbers(res.data.values ?? [], application, course, null)
+    .filter((rowNumber) => normalizeSheetCell(formulaRows[rowNumber - 2]?.[0]) === expectedAdminLink);
+
+  for (const rowNumber of rowNumbers) {
+    if (rowNumber === targetRowId) continue;
+    await overwriteWorksheetRow(sheets, spreadsheetId, worksheetTitle, rowNumber, rowValues);
   }
-
-  return null;
 }

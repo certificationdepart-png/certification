@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
-import { upsertApplicationRow } from "@/services/google-sheets-sync.service";
+import { enqueueSyncJob, upsertApplicationRow } from "@/services/google-sheets-sync.service";
 import { NotFoundError } from "@/services/errors";
 import { enqueueApplicationStatusChangedEvent, enqueueDelayedCertFollowup } from "@/services/outbox.service";
 import { sendConfirmationNotifications, sendRejectionNotification } from "@/services/telegram/telegram-notification.service";
@@ -121,6 +121,26 @@ export async function getApplicationScreenshot(
   return screenshot;
 }
 
+async function syncApplicationRowBestEffort(schoolId: string, applicationId: string): Promise<void> {
+  try {
+    await upsertApplicationRow(schoolId, applicationId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error("Realtime Google Sheets upsert failed (best-effort)", { applicationId, schoolId, message });
+
+    try {
+      await enqueueSyncJob(schoolId, applicationId);
+    } catch (queueError) {
+      const queueMessage = queueError instanceof Error ? queueError.message : String(queueError);
+      logger.error("Failed to enqueue Google Sheets sync fallback", {
+        applicationId,
+        schoolId,
+        message: queueMessage,
+      });
+    }
+  }
+}
+
 export async function updateApplicationStatus(
   id: string,
   schoolId: string,
@@ -187,13 +207,8 @@ export async function updateApplicationStatus(
   });
 
   // Real-time best-effort Sheets update for admin-driven status changes.
-  // If Google credentials are missing or Sheets update fails, we rely on the queued sync job.
-  try {
-    await upsertApplicationRow(schoolId, id);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error("Realtime Google Sheets upsert failed (best-effort)", { applicationId: id, schoolId, message });
-  }
+  // If it fails, queue an explicit fallback job immediately instead of waiting for outbox processing.
+  await syncApplicationRowBestEffort(schoolId, id);
 
   /** Не покладатися лише на outbox/cron: work-scope — підтвердження користувачу одразу після дії менеджера. */
   if (newStatus === "approved") {
@@ -256,12 +271,7 @@ export async function rejectApplication(
 
   await enqueueApplicationStatusChangedEvent({ applicationId: id, schoolId, newStatus: "rejected" });
 
-  try {
-    await upsertApplicationRow(schoolId, id);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error("Realtime Google Sheets upsert failed (best-effort)", { applicationId: id, schoolId, message });
-  }
+  await syncApplicationRowBestEffort(schoolId, id);
 
   await sendRejectionNotification(id, reason.messageText);
 }

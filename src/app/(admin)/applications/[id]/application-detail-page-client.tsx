@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Copy } from "lucide-react";
@@ -134,10 +134,12 @@ export function ApplicationDetailPageClient({
   const { data: reasonsPayload } = useRejectionReasonsQuery(application.school.id);
   const rejectionReasons: RejectionReasonRow[] = reasonsPayload?.data ?? [];
 
-  const [statusDraft, setStatusDraft] = useState<string>(application.status);
-  useEffect(() => {
-    setStatusDraft(application.status);
-  }, [application.status]);
+  const [statusDraftState, setStatusDraftState] = useState(() => ({
+    sourceStatus: application.status,
+    draft: application.status,
+  }));
+  const statusDraft =
+    statusDraftState.sourceStatus === application.status ? statusDraftState.draft : application.status;
 
   const canApplyStatus = statusDraft !== application.status && !patchApplication.isPending;
 
@@ -240,7 +242,9 @@ export function ApplicationDetailPageClient({
                   <Select
                     value={statusDraft}
                     onValueChange={(v) => {
-                      if (typeof v === "string") setStatusDraft(v);
+                      if (typeof v === "string") {
+                        setStatusDraftState({ sourceStatus: application.status, draft: v });
+                      }
                     }}
                     disabled={patchApplication.isPending}
                   >
@@ -272,7 +276,12 @@ export function ApplicationDetailPageClient({
                   variant="outline"
                   className="min-w-36"
                   disabled={!canApplyStatus}
-                  onClick={() => setStatusDraft(application.status)}
+                  onClick={() => {
+                    setStatusDraftState({
+                      sourceStatus: application.status,
+                      draft: application.status,
+                    });
+                  }}
                 >
                   Скинути
                 </Button>
