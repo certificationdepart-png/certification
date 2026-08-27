@@ -954,6 +954,88 @@ async function sendApplicationSubmittedFollowups(
   }
 }
 
+async function notifyPracticesBotAboutCompletion(input: {
+  telegramUserId: string;
+  telegramUsername: string | null;
+  studentName: string;
+  courseIds: string[];
+}): Promise<void> {
+  const completionCourseId =
+    process.env.PRACTICES_COMPLETION_COURSE_ID?.trim();
+
+  // Обычная заявка — ничего не делаем
+  if (
+    !completionCourseId ||
+    !input.courseIds.includes(completionCourseId)
+  ) {
+    return;
+  }
+
+  const webhookUrl =
+    process.env.PRACTICES_WEBHOOK_URL?.trim();
+
+  const secret =
+    process.env.PRACTICES_WEBHOOK_SECRET?.trim();
+
+  if (!webhookUrl || !secret) {
+    logger.warn("practices.webhook_not_configured", {
+      telegramUserId: input.telegramUserId,
+    });
+    return;
+  }
+
+  try {
+    const response = await fetch(webhookUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        source: "certification_bot",
+        action: "CERTIFICATION_COMPLETED",
+        secret,
+
+        telegramUserId: input.telegramUserId,
+        telegramUsername: input.telegramUsername,
+        studentName: input.studentName,
+      }),
+      redirect: "follow",
+    });
+
+    const responseText = await response.text();
+
+    let result: {
+      success?: boolean;
+      error?: string;
+    } | null = null;
+
+    try {
+      result = JSON.parse(responseText);
+    } catch {
+      result = null;
+    }
+
+    if (
+      !response.ok ||
+      result?.success !== true
+    ) {
+      logger.error("practices.webhook_failed", {
+        telegramUserId: input.telegramUserId,
+        status: response.status,
+        error: result?.error ?? "INVALID_RESPONSE",
+      });
+    }
+  } catch (error) {
+    logger.error("practices.webhook_request_failed", {
+      telegramUserId: input.telegramUserId,
+      message:
+        error instanceof Error
+          ? error.message
+          : String(error),
+    });
+  }
+}
+
 export async function processTelegramDialog(input: DialogProcessInput) {
   const { school, incoming, telegramClient } = input;
 
@@ -2598,6 +2680,23 @@ export async function processTelegramDialog(input: DialogProcessInput) {
         incoming.telegramUsername,
         finalState,
       );
+
+      await notifyPracticesBotAboutCompletion({
+        telegramUserId:
+          incoming.telegramUserId,
+      
+        telegramUsername:
+          incoming.telegramUsername,
+      
+        studentName:
+          finalState.studentNameUa ?? "",
+      
+        courseIds:
+          application.courses.map(
+            (course) => course.courseId,
+          ),
+      });
+      
       await prisma.userSession.update({
         where: { id: session.id },
         data: {
