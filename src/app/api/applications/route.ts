@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
 
-import { requireApiSession } from "@/lib/api-auth";
+import { requireApiSession, requireSchoolAccess } from "@/lib/api-auth";
 import { handleRouteError } from "@/lib/api-response";
+import { ForbiddenError } from "@/services/errors";
 import { parseApplicationsListQuery } from "@/lib/api-validation";
 import { listApplications } from "@/services/applications.service";
 
 export async function GET(request: Request) {
   try {
-    await requireApiSession();
+    const session = await requireApiSession(["admin", "manager"]);
+    const role = (session.user as unknown as { role?: string | null }).role ?? "user";
     const query = parseApplicationsListQuery(request);
+    if (role !== "admin") {
+      if (!query.schoolId) throw new ForbiddenError();
+      await requireSchoolAccess(session, query.schoolId, "canViewApplications");
+    }
     const statusArr = query.status
       ? Array.isArray(query.status)
         ? query.status

@@ -49,7 +49,7 @@ function normalizeSchoolRow(s: SchoolListRow): SchoolListRow {
   };
 }
 
-export function SchoolsClient({ initialSchools }: { initialSchools: SchoolListRow[] }) {
+export function SchoolsClient({ initialSchools, canCreate = true }: { initialSchools: SchoolListRow[]; canCreate?: boolean }) {
   const router = useRouter();
   const { data: rawSchools = [] } = useSchoolsAdminListQuery(initialSchools.map(normalizeSchoolRow));
   const schools = useMemo(() => rawSchools.map(normalizeSchoolRow), [rawSchools]);
@@ -136,9 +136,11 @@ export function SchoolsClient({ initialSchools }: { initialSchools: SchoolListRo
             налаштувань школи.
           </p>
         </div>
-        <Button type="button" onClick={() => setCreateOpen(true)}>
-          Додати школу
-        </Button>
+        {canCreate && (
+          <Button type="button" onClick={() => setCreateOpen(true)}>
+            Додати школу
+          </Button>
+        )}
       </div>
 
       <div className="data-table-container">

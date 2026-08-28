@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireApiSession } from "@/lib/api-auth";
+import { requireApiAdminSession, requireApiSession, requireSchoolAccess } from "@/lib/api-auth";
 import { handleRouteError } from "@/lib/api-response";
 import { idParamSchema } from "@/lib/api-validation";
 import { deleteSchool, getSchoolById, updateSchool } from "@/services/schools.service";
@@ -10,8 +10,9 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_: Request, { params }: Params) {
   try {
-    await requireApiSession();
+    const session = await requireApiSession(["admin", "manager"]);
     const { id } = idParamSchema.parse(await params);
+    await requireSchoolAccess(session, id, "canViewApplications");
     const school = await getSchoolById(id);
     return NextResponse.json({ data: school });
   } catch (error) {
@@ -21,8 +22,9 @@ export async function GET(_: Request, { params }: Params) {
 
 export async function PATCH(request: Request, { params }: Params) {
   try {
-    await requireApiSession();
+    const session = await requireApiSession(["admin", "manager"]);
     const { id } = idParamSchema.parse(await params);
+    await requireSchoolAccess(session, id, "canEditSchool");
     const payload = await request.json();
     const school = await updateSchool(id, schoolUpdateSchema.parse(payload));
     return NextResponse.json({ data: school });
@@ -33,7 +35,7 @@ export async function PATCH(request: Request, { params }: Params) {
 
 export async function DELETE(_: Request, { params }: Params) {
   try {
-    await requireApiSession();
+    await requireApiAdminSession();
     const { id } = idParamSchema.parse(await params);
     const result = await deleteSchool(id);
     return NextResponse.json({ data: result });

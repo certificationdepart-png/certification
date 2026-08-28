@@ -29,5 +29,8 @@ export const apiRoutes = {
   syncJobRetry: (id: string) => `/api/sync/jobs/${id}/retry`,
 
   processSyncJobsCron: "/api/cron/process-sync-jobs",
+
+  managers: "/api/managers",
+  managerById: (id: string) => `/api/managers/${id}`,
 } as const;
 

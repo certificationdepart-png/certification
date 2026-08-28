@@ -29,6 +29,10 @@ export const queryKeys = {
   health: {
     all: ["health"] as const,
   },
+  managers: {
+    all: ["managers"] as const,
+    list: () => [...queryKeys.managers.all, "list"] as const,
+  },
   rejectionReasons: {
     all: ["rejectionReasons"] as const,
     bySchool: (schoolId: string) => [...queryKeys.rejectionReasons.all, schoolId] as const,

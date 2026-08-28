@@ -27,7 +27,10 @@ export default async function AdminLayout({
   // but we keep a DB fallback to avoid redirect loops if Better Auth returns
   // a different shape for the user object.
   let role = (session.user as unknown as { role?: string | null }).role;
-  if (!role) {
+  // Always fetch the freshest role from DB when the session role isn't already admin-level.
+  // Sessions cache the role at login time, so a manager whose role was upgraded after login
+  // would be stuck with the stale "user" value without this fallback.
+  if (!isAdminRole(role)) {
     const userId = (session.user as unknown as { id?: string | null }).id;
     if (userId) {
       const dbUser = await prisma.user.findUnique({
@@ -61,6 +64,7 @@ export default async function AdminLayout({
                 "Адмін") as string,
             email: (session.user.email ?? "") as string,
             avatar: null,
+            role,
           }}
         />
         <SidebarInset className="min-h-0 self-stretch">
