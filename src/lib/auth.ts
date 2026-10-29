@@ -26,6 +26,8 @@ export const auth = betterAuth({
       ],
   emailAndPassword: {
     enabled: true,
+    // Admin users must be provisioned out of band. Public sign-up is forbidden.
+    disableSignUp: true,
   },
   // Ensure custom user fields (like `role`) are exposed on `session.user`.
   // This prevents the admin layout from redirecting back to `/login`
@@ -35,17 +37,6 @@ export const auth = betterAuth({
       role: {
         type: "string",
         input: false,
-      },
-    },
-  },
-  databaseHooks: {
-    // Ensure every new sign-up gets admin access by default.
-    // (This matches your current requirement: "auto-admin all new sign-ups".)
-    user: {
-      create: {
-        before: async (user) => {
-          return { data: { ...user, role: "admin" } };
-        },
       },
     },
   },

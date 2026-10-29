@@ -21,6 +21,12 @@ const envSchema = z.object({
     (val) => (typeof val === "string" && val.trim() === "" ? undefined : val),
     z.string().optional(),
   ),
+  // Enabled only after the legacy queue has been cancelled and rollout verified.
+  DELAYED_FOLLOWUPS_ENABLED: z.enum(["true", "false"]).default("false"),
+  // Safety fence: legacy events created before this timestamp can NEVER be sent.
+  DELAYED_FOLLOWUPS_START_AT: z.string().datetime({ offset: true }).optional(),
+  // Separate bearer token for the external Supabase pg_cron caller.
+  DELAYED_CRON_SECRET: z.string().min(32).optional(),
   RATE_LIMIT_WEBHOOK_PER_MINUTE: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_CRON_PER_MINUTE: z.coerce.number().int().positive().default(20),
   ERROR_TRACKING_DSN: z.preprocess(
@@ -54,6 +60,9 @@ export const env = envSchema.parse({
   GOOGLE_SERVICE_ACCOUNT_JSON: process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
   GOOGLE_SERVICE_ACCOUNT_JSON_B64: process.env.GOOGLE_SERVICE_ACCOUNT_JSON_B64,
   CRON_SECRET: process.env.CRON_SECRET,
+  DELAYED_FOLLOWUPS_ENABLED: process.env.DELAYED_FOLLOWUPS_ENABLED,
+  DELAYED_FOLLOWUPS_START_AT: process.env.DELAYED_FOLLOWUPS_START_AT,
+  DELAYED_CRON_SECRET: process.env.DELAYED_CRON_SECRET,
   RATE_LIMIT_WEBHOOK_PER_MINUTE: process.env.RATE_LIMIT_WEBHOOK_PER_MINUTE,
   RATE_LIMIT_CRON_PER_MINUTE: process.env.RATE_LIMIT_CRON_PER_MINUTE,
   ERROR_TRACKING_DSN: process.env.ERROR_TRACKING_DSN,

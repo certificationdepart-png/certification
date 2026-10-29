@@ -4,8 +4,13 @@ import { google } from "googleapis";
 import { describe, expect, it } from "vitest";
 import type { ApplicationCourseForSync, ApplicationForSync } from "@/services/google-sheets-sync.service";
 
+// Live integration modifies a test PostgreSQL database and a Google spreadsheet.
+// It must never run automatically during CI or routine local test runs.
+const runLiveGoogleSheetsTests = process.env.RUN_LIVE_GOOGLE_SHEETS_TESTS === "true";
 const hasLocalGoogleSheetsEnv = Boolean(
-  process.env.DATABASE_URL &&
+  runLiveGoogleSheetsTests &&
+    process.env.DATABASE_URL &&
+    process.env.GOOGLE_SHEETS_TEST_SPREADSHEET_ID &&
     (process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_SERVICE_ACCOUNT_JSON_B64),
 );
 
@@ -298,7 +303,7 @@ it.skipIf(!hasLocalGoogleSheetsEnv)(
 );
 
 describe("Google Sheets live sync integration", () => {
-  it("has local env available for live Google Sheets testing", () => {
+  it.skipIf(!runLiveGoogleSheetsTests)("has local env available for live Google Sheets testing", () => {
     expect(hasLocalGoogleSheetsEnv).toBe(true);
   });
 });
