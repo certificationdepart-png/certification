@@ -30,17 +30,32 @@ function isMissingOutboxTable(error: unknown) {
   );
 }
 
+/** Only schedules NEW events after the explicitly configured activation timestamp. */
 export async function enqueueDelayedCertFollowup(payload: DelayedCertFollowupPayload, delayDays: number) {
-  await outboxEvent.create({
-    data: {
-      schoolId: payload.schoolId,
-      applicationId: payload.applicationId,
-      eventType: "delayed_certificate_followup",
-      payload,
-      status: "pending",
-      nextAttemptAt: new Date(Date.now() + delayDays * 86_400_000),
-    },
-  });
+  const activation = process.env.DELAYED_FOLLOWUPS_START_AT;
+  if (process.env.DELAYED_FOLLOWUPS_ENABLED !== "true" || !activation || Date.now() < Date.parse(activation)) return;
+  if (!Number.isInteger(delayDays) || delayDays < 1 || delayDays > 365) {
+    throw new Error("Invalid delayed follow-up days");
+  }
+  // Deterministic ID enforces one follow-up per application and course without a schema migration.
+  const eventId = `followup:${payload.applicationId}:${payload.courseId}`;
+  try {
+    await outboxEvent.create({
+      data: {
+        id: eventId,
+        schoolId: payload.schoolId,
+        applicationId: payload.applicationId,
+        eventType: "delayed_certificate_followup",
+        payload,
+        status: "pending",
+        nextAttemptAt: new Date(Date.now() + delayDays * 86_400_000),
+      },
+    });
+  } catch (error) {
+    // A second click on Confirm cannot schedule the same follow-up twice.
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") return;
+    throw error;
+  }
 }
 
 export async function enqueueApplicationStatusChangedEvent(payload: ApplicationStatusChangedPayload) {
@@ -69,6 +84,7 @@ async function claimPendingOutboxEvent() {
   const event = await outboxEvent.findFirst({
     where: {
       status: "pending",
+      eventType: "application.status_changed",
       OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
     },
     orderBy: { createdAt: "asc" },
@@ -85,27 +101,6 @@ async function claimPendingOutboxEvent() {
   return outboxEvent.findUnique({
     where: { id: event.id },
   });
-}
-
-async function processDelayedCertFollowup(eventId: string, payload: DelayedCertFollowupPayload) {
-  const application = await prisma.application.findUnique({
-    where: { id: payload.applicationId },
-    select: { id: true, school: { select: { telegramBotTokenEnc: true } } },
-  });
-
-  if (application) {
-    const { decryptSecret } = await import("@/lib/crypto");
-    const { createTelegramClientWithLogging } = await import("@/services/telegram/telegram-client-with-logging");
-    const botToken = decryptSecret(application.school.telegramBotTokenEnc);
-    const telegramClient = createTelegramClientWithLogging(payload.schoolId);
-    await telegramClient.sendMessage({ botToken, chatId: payload.chatId, text: payload.messageText });
-  }
-
-  await outboxEvent.update({
-    where: { id: eventId },
-    data: { status: "completed", processedAt: new Date(), lastError: null },
-  });
-  observability.increment("outbox.processed.total");
 }
 
 async function processApplicationStatusChanged(eventId: string, payload: ApplicationStatusChangedPayload) {
@@ -158,11 +153,6 @@ export async function processOneOutboxEvent(): Promise<boolean> {
   try {
     if (event.eventType === "application.status_changed") {
       await processApplicationStatusChanged(event.id, event.payload as ApplicationStatusChangedPayload);
-      return true;
-    }
-
-    if (event.eventType === "delayed_certificate_followup") {
-      await processDelayedCertFollowup(event.id, event.payload as DelayedCertFollowupPayload);
       return true;
     }
 

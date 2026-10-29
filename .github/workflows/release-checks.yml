@@ -1,0 +1,47 @@
+name: Release checks (no production access)
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: "true"
+      NODE_ENV: test
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/ci
+      AUTH_SECRET: ci-only-auth-secret-32-plus-characters-not-for-production
+      DATA_ENCRYPTION_KEY: ci-only-data-encryption-key-32-plus-characters
+      CRON_SECRET: ci-only-cron-secret-32-plus-characters
+      DELAYED_FOLLOWUPS_ENABLED: "false"
+      DELAYED_FOLLOWUPS_START_AT: "2099-01-01T00:00:00Z"
+      DELAYED_CRON_SECRET: ci-only-delayed-cron-secret-32-plus-characters
+    steps:
+      - name: Check out proposed changes
+        uses: actions/checkout@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Release safety assertions
+        run: node --test tests/release-invariants.test.mjs
+      - name: Generate Prisma client
+        run: bun prisma generate
+      - name: Validate Prisma schema
+        run: bun prisma validate
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Lint
+        run: bun run lint
+      - name: Unit tests
+        run: bun run test
+      - name: Production build (NO database migrations or seed)
+        env:
+          NODE_ENV: production
+        run: bun run build

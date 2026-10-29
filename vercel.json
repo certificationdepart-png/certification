@@ -1,6 +1,6 @@
 {
   "installCommand": "bun install --frozen-lockfile",
-  "buildCommand": "bun prisma generate && bun run db:migrate:deploy && bun run db:seed && bun run build",
+  "buildCommand": "bun prisma generate && bun run build",
   "framework": "nextjs",
   "crons": [
     {
@@ -9,4 +9,3 @@
     }
   ]
 }
-

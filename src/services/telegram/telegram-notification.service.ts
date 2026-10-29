@@ -32,7 +32,7 @@ export async function sendConfirmationNotifications(
     },
   });
 
-  if (!application) return;
+  if (!application || application.status !== "approved") return;
   if (application.confirmationNotifiedAt) return;
 
   const botToken = decryptSecret(application.school.telegramBotTokenEnc);
